@@ -109,7 +109,7 @@ public class SqlServerServerRepository : IServerRepository
     public async Task<List<ServerDetail>> GetServerVersionsAsync(string serverName)
     {
         using var connection = CreateConnection();
-        var sql = "SELECT [Value], [Status], [AddedAt], [UpdatedAt], IsLatest FROM Servers WHERE ServerName = @Name ORDER BY CreatedAt DESC";
+        var sql = "SELECT [Value], [Status], [AddedAt], [UpdatedAt], IsLatest FROM Servers WHERE ServerName = @Name ORDER BY AddedAt DESC";
         var results = await connection.QueryAsync(sql, new { Name = serverName });
 
         var servers = new List<ServerDetail>();
@@ -223,5 +223,25 @@ public class SqlServerServerRepository : IServerRepository
             transaction.Rollback();
             throw;
         }
+    }
+
+    public async Task<bool> UpdateServerAsync(string serverName, string version, ServerDetail server)
+    {
+        using var connection = CreateConnection();
+
+        var jsonData = JsonSerializer.Serialize(server);
+
+        var sql = @"UPDATE Servers SET [Value] = @Value, [Status] = @Status
+                    WHERE ServerName = @Name AND Version = @Version";
+
+        var rows = await connection.ExecuteAsync(sql, new
+        {
+            Name = serverName,
+            Version = version,
+            Status = server.Status ?? "active",
+            Value = jsonData
+        });
+
+        return rows > 0;
     }
 }

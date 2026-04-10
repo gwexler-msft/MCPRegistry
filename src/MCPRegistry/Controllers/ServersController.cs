@@ -14,7 +14,7 @@ public class ServersController : ControllerBase
     private readonly ILogger<ServersController> _logger;
 
     // Regex to validate semantic versioning (semver) format
-    // follows Backus–Naur Form Grammar for Valid SemVer Versions (https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)
+    // follows Backusï¿½Naur Form Grammar for Valid SemVer Versions (https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)
     private readonly Regex _versionRegex = new Regex(
         @"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[0-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -284,6 +284,37 @@ public class ServersController : ControllerBase
         {
             _logger.LogError(ex, "Error adding server");
             return Problem("Failed to insert servers", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
+        }
+    }
+
+    [HttpPut("{serverName}/versions/{version}")]
+    [ProducesResponseType(typeof(ServerResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UpdateServerVersion(string serverName, string version, [FromBody] ServerDetail server)
+    {
+        try
+        {
+            var decodedServerName = Uri.UnescapeDataString(serverName);
+            var decodedVersion = Uri.UnescapeDataString(version);
+
+            var existing = await _registryService.GetServerVersionAsync(decodedServerName, decodedVersion);
+            if (existing is null)
+                return NotFound("Server version not found");
+
+            server.Name = decodedServerName;
+            server.Version = decodedVersion;
+
+            var updated = await _registryService.UpdateServerAsync(decodedServerName, decodedVersion, server);
+            if (!updated)
+                return Problem("Failed to update server version", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
+
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating server version {ServerName}@{Version}", serverName, version);
+            return Problem("Failed to update server version", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
         }
     }
 }

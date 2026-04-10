@@ -18,4 +18,6 @@ public interface IServerRegistryService
     Task<bool> DeleteServerVersionAsync(string serverName, string version);
 
     Task AddServerAsync(ServerDetail server);
+
+    Task<bool> UpdateServerAsync(string serverName, string version, ServerDetail server);
 }
