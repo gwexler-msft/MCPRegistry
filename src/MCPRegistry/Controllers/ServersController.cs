@@ -286,35 +286,4 @@ public class ServersController : ControllerBase
             return Problem("Failed to insert servers", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
         }
     }
-
-    [HttpPut("{serverName}/versions/{version}")]
-    [ProducesResponseType(typeof(ServerResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> UpdateServerVersion(string serverName, string version, [FromBody] ServerDetail server)
-    {
-        try
-        {
-            var decodedServerName = Uri.UnescapeDataString(serverName);
-            var decodedVersion = Uri.UnescapeDataString(version);
-
-            var existing = await _registryService.GetServerVersionAsync(decodedServerName, decodedVersion);
-            if (existing is null)
-                return NotFound("Server version not found");
-
-            server.Name = decodedServerName;
-            server.Version = decodedVersion;
-
-            var updated = await _registryService.UpdateServerAsync(decodedServerName, decodedVersion, server);
-            if (!updated)
-                return Problem("Failed to update server version", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
-
-            return Ok();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating server version {ServerName}@{Version}", serverName, version);
-            return Problem("Failed to update server version", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
-        }
-    }
 }

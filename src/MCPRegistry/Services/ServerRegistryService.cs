@@ -70,10 +70,5 @@ public class ServerRegistryService : IServerRegistryService
     {
         await _repository.AddServerAsync(server);
     }
-
-    public async Task<bool> UpdateServerAsync(string serverName, string version, ServerDetail server)
-    {
-        return await _repository.UpdateServerAsync(serverName, version, server);
-    }
 }
 

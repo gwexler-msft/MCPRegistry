@@ -202,8 +202,8 @@ public class SqlServerServerRepository : IServerRepository
             await connection.ExecuteAsync(unsetLatestSql, new { Name = server.Name }, transaction);
 
             var sql = @"
-                INSERT INTO Servers (ServerName, Version, Status, UpdatedAt, CreatedAt, IsLatest, [Value])
-                VALUES (@Name, @Version, @Status, @UpdatedAt, @CreatedAt, @IsLatest, @Value)";
+                INSERT INTO Servers (ServerName, Version, Status, UpdatedAt, AddedAt, IsLatest, [Value])
+                VALUES (@Name, @Version, @Status, @UpdatedAt, @AddedAt, @IsLatest, @Value)";
 
             await connection.ExecuteAsync(sql, new
             {
@@ -211,7 +211,7 @@ public class SqlServerServerRepository : IServerRepository
                 Version = server.Version,
                 Status = "active",
                 UpdatedAt = DateTimeOffset.UtcNow,
-                CreatedAt = DateTimeOffset.UtcNow,
+                AddedAt = DateTimeOffset.UtcNow,
                 IsLatest = true,
                 Value = jsonData
             }, transaction);
@@ -223,25 +223,5 @@ public class SqlServerServerRepository : IServerRepository
             transaction.Rollback();
             throw;
         }
-    }
-
-    public async Task<bool> UpdateServerAsync(string serverName, string version, ServerDetail server)
-    {
-        using var connection = CreateConnection();
-
-        var jsonData = JsonSerializer.Serialize(server);
-
-        var sql = @"UPDATE Servers SET [Value] = @Value, [Status] = @Status
-                    WHERE ServerName = @Name AND Version = @Version";
-
-        var rows = await connection.ExecuteAsync(sql, new
-        {
-            Name = serverName,
-            Version = version,
-            Status = server.Status ?? "active",
-            Value = jsonData
-        });
-
-        return rows > 0;
     }
 }

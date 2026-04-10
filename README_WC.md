@@ -37,6 +37,7 @@ Install the following before starting:
 | **SQL Server LocalDB** | Included with Visual Studio, or install separately | https://learn.microsoft.com/sql/database-engine/configure-windows/sql-server-express-localdb |
 | **Azure CLI** | Latest | `winget install Microsoft.AzureCLI` |
 | **Azure Developer CLI (azd)** | Latest | `winget install Microsoft.Azd` |
+| **sqlpackage** | Latest | `dotnet tool install -g microsoft.sqlpackage` |
 | **Git** | Latest | https://git-scm.com/ |
 
 ### Verify installations
@@ -46,6 +47,7 @@ dotnet --version          # Should show 10.x
 sqllocaldb info           # Should list MSSQLLocalDB
 az --version              # Azure CLI version
 azd version               # Azure Developer CLI version
+sqlpackage /version       # Should show sqlpackage version
 ```
 
 > **Note:** After installing `azd` via winget, you may need to restart your terminal or run:
@@ -60,19 +62,24 @@ azd version               # Azure Developer CLI version
 ```
 MCPRegistry/
 ├── MCPRegistry.slnx                  # Solution file
-├── azure.yaml                        # Azure Developer CLI configuration
+├── azd/                              # Azure Developer CLI deployment (run azd from here)
+│   ├── azure.yaml                    # azd configuration
+│   ├── infra/
+│   │   ├── main.bicep                # Bicep entry point (subscription-scoped)
+│   │   ├── main.parameters.json      # Parameter bindings for azd
+│   │   └── modules/
+│   │       ├── naming.bicep          # CAF naming convention functions
+│   │       └── resources.bicep       # All Azure resources (AVM modules)
+│   └── scripts/
+│       ├── deploy-db.ps1             # Post-provision: deploy schema via dacpac (Windows)
+│       ├── deploy-db.sh              # Post-provision: deploy schema via dacpac (Linux/macOS)
+│       ├── grant-sql-access.ps1      # Post-provision: grant managed identity SQL access (Windows)
+│       └── grant-sql-access.sh       # Post-provision: grant managed identity SQL access (Linux/macOS)
 ├── data/
 │   ├── sample-seed-data.json         # Sample MCP servers for seeding
 │   └── new-version-data.json         # Example payload for adding new versions
-├── infra/
-│   ├── main.bicep                    # Bicep entry point (subscription-scoped)
-│   ├── main.parameters.json          # Parameter bindings for azd
-│   └── modules/
-│       └── resources.bicep           # All Azure resources (Container Apps, SQL, ACR, etc.)
 ├── scripts/
-│   ├── grant-sql-access.ps1          # Post-provision: grants managed identity SQL access (Windows)
-│   ├── grant-sql-access.sh           # Post-provision: grants managed identity SQL access (Linux/macOS)
-│   └── DeploySchema/                 # .NET tool to deploy database schema to Azure SQL
+│   └── DeploySchema/                 # Standalone .NET tool for schema deployment (non-azd)
 │       ├── DeploySchema.csproj
 │       └── Program.cs
 ├── src/
@@ -88,7 +95,7 @@ MCPRegistry/
 │   │   ├── Data/
 │   │   ├── Models/
 │   │   └── Services/
-│   └── MCPRegistryDatabase/          # SQL Server Database Project (SDK-style)
+│   └── MCPRegistryDatabase/          # SQL Server Database Project (SDK-style, produces .dacpac)
 │       ├── MCPRegistryDatabase.sqlproj
 │       ├── Tables/
 │       │   └── dbo.Servers.sql
@@ -253,8 +260,9 @@ All endpoints are prefixed with `/v0.1`. Swagger UI is available at `/swagger` o
 | `GET` | `/v0.1/servers/{serverName}/versions/{version}` | Get a specific version | — | `ServerResponse` |
 | `GET` | `/v0.1/servers/{serverName}/versions/latest` | Get the latest version | — | `ServerResponse` |
 | `POST` | `/v0.1/servers` | Add one or more servers | `ServerDetail[]` (JSON array) | `201 Created` |
-| `PUT` | `/v0.1/servers/{serverName}/versions/{version}` | Update a server version | `ServerDetail` (JSON object) | `200 OK` |
-| `DELETE` | `/v0.1/servers/{serverName}/versions/{version}` | Soft-delete a server version | — | `200 OK` |
+| `DELETE` | `/v0.1/servers/{serverName}/versions/{version}` | Soft-delete a server version (sets status to "deleted") | — | `200 OK` |
+
+> **Note on immutability:** Per the [MCP registry specification](https://modelcontextprotocol.io), server metadata is immutable except for the `status` field. To publish changes, add a new version. Use `DELETE` to mark a version as "deleted" (spam, malware, or policy violation). Aggregators should keep status in sync.
 
 ### Example: Add a server (POST)
 
@@ -270,20 +278,6 @@ Content-Type: application/json
     "title": "My MCP Server"
   }
 ]
-```
-
-### Example: Update a server (PUT)
-
-```bash
-PUT /v0.1/servers/com.example%2Fmy-mcp-server/versions/1.0.0
-Content-Type: application/json
-
-{
-  "name": "com.example/my-mcp-server",
-  "version": "1.0.0",
-  "description": "Updated description for my MCP server",
-  "title": "My MCP Server (Updated)"
-}
 ```
 
 ---
@@ -309,11 +303,16 @@ azd auth login
 
 ### Step 2: Initialize the azd environment
 
+All `azd` commands are run from the `azd/` folder:
+
 ```powershell
+cd azd
 azd init -e <environment-name>
 ```
 
 Replace `<environment-name>` with your desired name (e.g., `mcpregistry-prod`).
+
+> **Note:** The `azd/` folder contains all Azure deployment files (Bicep, scripts, azure.yaml). The application source code remains in `src/`. Customers who don't use azd can use the Bicep templates in `azd/infra/` directly with `az deployment` or other tooling.
 
 ### Step 3: Configure environment variables
 
@@ -326,6 +325,39 @@ azd env set AZURE_LOCATION "<region>"   # e.g., centralus, eastus2
 azd env set AZURE_PRINCIPAL_ID $(az ad signed-in-user show --query id -o tsv)
 azd env set AZURE_PRINCIPAL_NAME $(az ad signed-in-user show --query displayName -o tsv)
 ```
+
+### Step 3b: Customize resource names (optional)
+
+By default, all resources are named using [Azure CAF naming conventions](https://learn.microsoft.com/en-us/azure/cloud-adoption-framework/ready/azure-best-practices/resource-abbreviations) with the pattern `{prefix}-{workload}-{suffix}`. You can customize the workload identifier or override individual resource names to meet your organization's naming policies.
+
+**Change the workload identifier** (affects all default names):
+
+```powershell
+azd env set AZURE_WORKLOAD_NAME "myregistry"
+# Results in names like: log-myregistry-a34srx, sql-myregistry-a34srx, etc.
+```
+
+**Override individual resource names** (for full control):
+
+| Environment Variable | Resource | Default Pattern | Example Override |
+|---------------------|----------|-----------------|------------------|
+| `AZURE_RESOURCE_GROUP_NAME` | Resource Group | `rg-{envName}` | `rg-prod-mcpregistry-eastus2` |
+| `AZURE_LOG_ANALYTICS_NAME` | Log Analytics Workspace | `log-{workload}-{suffix}` | `log-prod-registry-01` |
+| `AZURE_CONTAINER_REGISTRY_NAME` | Container Registry | `cr{workload}{suffix}` | `crprodregistry01` |
+| `AZURE_MANAGED_IDENTITY_NAME` | Managed Identity | `id-{workload}-{suffix}` | `id-prod-registry-01` |
+| `AZURE_CONTAINER_APPS_ENV_NAME` | Container Apps Environment | `cae-{workload}-{suffix}` | `cae-prod-registry-01` |
+| `AZURE_SQL_SERVER_NAME` | SQL Server | `sql-{workload}-{suffix}` | `sql-prod-registry-01` |
+| `AZURE_SQL_DATABASE_NAME` | SQL Database | `MCPRegistry` | `McpRegistryProd` |
+| `AZURE_CONTAINER_APP_NAME` | Container App | `ca-{workload}-{suffix}` | `ca-prod-registry-01` |
+
+```powershell
+# Example: override specific resource names
+azd env set AZURE_RESOURCE_GROUP_NAME "rg-prod-mcpregistry"
+azd env set AZURE_SQL_SERVER_NAME "sql-prod-mcpregistry-01"
+azd env set AZURE_CONTAINER_APP_NAME "ca-prod-mcpregistry-01"
+```
+
+> **Note:** Container Registry names must be alphanumeric only (no dashes), 5-50 characters. SQL Server names must be globally unique.
 
 ### Step 4: Provision Azure resources
 
@@ -357,7 +389,12 @@ Endpoint: https://ca-mcpreg-xxxxxx.xxxxxxxx.centralus.azurecontainerapps.io/
 
 ### Step 6: Deploy the database schema
 
-The database is created empty. Deploy the schema using the included tool:
+The database is created empty by `azd provision`. The schema is deployed using the SQL project's `.dacpac` and `sqlpackage`.
+
+> **Prerequisite:** Install `sqlpackage` if not already installed:
+> ```powershell
+> dotnet tool install -g microsoft.sqlpackage
+> ```
 
 ```powershell
 # Add your IP to the SQL firewall (required for local access)
@@ -375,51 +412,53 @@ az sql server conn-policy update `
   --resource-group rg-<environment-name> `
   --connection-type Proxy
 
-# Get an access token and deploy schema
-$token = az account get-access-token --resource "https://database.windows.net/" --query accessToken -o tsv
-$env:SQL_TOKEN = $token
-$env:SQL_SERVER = "<sql-server-name>.database.windows.net"
-$env:SQL_DB = "MCPRegistry"
+# Build the dacpac and deploy (run from repo root)
+dotnet build src/MCPRegistryDatabase/MCPRegistryDatabase.sqlproj -c Release
 
-dotnet run --project scripts/DeploySchema
+$token = az account get-access-token --resource "https://database.windows.net/" --query accessToken -o tsv
+
+sqlpackage /Action:Publish `
+  /SourceFile:"src/MCPRegistryDatabase/bin/Release/MCPRegistryDatabase.dacpac" `
+  /TargetServerName:"<sql-server-name>.database.windows.net" `
+  /TargetDatabaseName:"MCPRegistry" `
+  /AccessToken:"$token" `
+  /p:BlockOnPossibleDataLoss=False
 ```
+
+> **Tip:** The `azd/scripts/deploy-db.ps1` script automates the above steps and is also called automatically by `azd provision` via the postprovision hook.
 
 ### Step 7: Grant managed identity SQL access
 
-```powershell
-# Get the managed identity name from the Container App
-$identityResource = az containerapp show `
-  --name <container-app-name> `
-  --resource-group rg-<environment-name> `
-  --query "identity.userAssignedIdentities | keys(@) | [0]" -o tsv
-$identityName = ($identityResource -split '/')[-1]
+This is handled automatically by the postprovision hook in `azd/azure.yaml`. To run manually:
 
-# Run the schema tool with SQL_IDENTITY set
-$env:SQL_IDENTITY = $identityName
-$token = az account get-access-token --resource "https://database.windows.net/" --query accessToken -o tsv
-$env:SQL_TOKEN = $token
-dotnet run --project scripts/DeploySchema
+```powershell
+./azd/scripts/grant-sql-access.ps1
 ```
 
 ### Step 8: Seed data (optional)
 
+Once the app is deployed and running, seed sample servers using the POST API and the included sample data file:
+
 ```powershell
-$json = Get-Content "data\sample-seed-data.json" -Raw | ConvertFrom-Json
-$token = az account get-access-token --resource "https://database.windows.net/" --query accessToken -o tsv
-$conn = New-Object System.Data.SqlClient.SqlConnection
-$conn.ConnectionString = "Server=tcp:<sql-server-name>.database.windows.net,1433;Database=MCPRegistry;Encrypt=True;TrustServerCertificate=True;"
-$conn.AccessToken = $token
-$conn.Open()
-foreach ($item in $json) {
-    $cmd = $conn.CreateCommand()
-    $cmd.CommandText = "IF NOT EXISTS (SELECT 1 FROM Servers WHERE ServerName=@Name AND Version=@Ver) INSERT INTO Servers (ServerName, Version, [Value], IsLatest) VALUES (@Name, @Ver, @Val, 1)"
-    $cmd.Parameters.AddWithValue("@Name", $item.name) | Out-Null
-    $cmd.Parameters.AddWithValue("@Ver", $item.version) | Out-Null
-    $cmd.Parameters.AddWithValue("@Val", ($item | ConvertTo-Json -Depth 20 -Compress)) | Out-Null
-    $cmd.ExecuteNonQuery() | Out-Null
-    Write-Host "Inserted: $($item.name) v$($item.version)"
-}
-$conn.Close()
+$base = "<your-container-app-url>"   # e.g., https://ca-mcpreg-xxxxx.xxxxxxxx.centralus.azurecontainerapps.io
+$body = Get-Content "data/sample-seed-data.json" -Raw
+Invoke-RestMethod -Method POST -Uri "$base/v0.1/servers" -Body $body -ContentType "application/json"
+```
+
+You can also add your own servers by creating a JSON array following the same format as `data/sample-seed-data.json` or `data/new-version-data.json`:
+
+```powershell
+$body = @'
+[
+  {
+    "name": "com.example/my-mcp-server",
+    "version": "1.0.0",
+    "description": "My custom MCP server",
+    "title": "My MCP Server"
+  }
+]
+'@
+Invoke-RestMethod -Method POST -Uri "$base/v0.1/servers" -Body $body -ContentType "application/json"
 ```
 
 ### Step 9: Restore connection policy and clean up firewall
@@ -442,9 +481,12 @@ az sql server firewall-rule delete `
 
 ## Redeployment & Updates
 
+All `azd` commands should be run from the `azd/` folder.
+
 ### Code changes only
 
 ```powershell
+cd azd
 azd deploy
 ```
 
@@ -480,21 +522,69 @@ Restart your terminal or run:
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 ```
 
+### azd must run from the `azd/` folder
+
+All `azd` commands (`azd init`, `azd up`, `azd deploy`, `azd provision`) must be run from the `azd/` directory, not the repo root. If you see `ERROR: no project exists`, you're in the wrong folder.
+
+```powershell
+cd azd
+azd up
+```
+
 ### Container App fails with MANIFEST_UNKNOWN during first provision
 
 The initial `azd provision` may fail because the Container App references an image that hasn't been pushed yet. The Bicep uses a placeholder image (`mcr.microsoft.com/azuredocs/containerapps-helloworld:latest`) for the first provisioning. If you see this error, run `azd provision` again.
 
+### Container App fails with UNAUTHORIZED pulling from ACR
+
+If the Container App can't pull images from ACR, the registry credentials may not be configured correctly. The Bicep uses ACR admin credentials. Verify admin user is enabled:
+```powershell
+az acr update --name <acr-name> --admin-enabled true
+```
+Then re-provision: `azd provision`
+
 ### TLS pre-login handshake errors connecting to Azure SQL
 
-This happens when connecting from outside Azure with the Default connection policy. Temporarily switch to Proxy mode:
+This happens when connecting from outside Azure with the **Default** connection policy. The `deploy-db.ps1` script handles this automatically by temporarily switching to **Proxy** mode. If running manually:
 ```powershell
 az sql server conn-policy update --server <sql-server> --resource-group <rg> --connection-type Proxy
 ```
-Remember to switch back to Default after completing your operation.
+Remember to switch back to **Default** after your operation (Proxy has higher latency).
 
-### Database auto-paused (serverless)
+### dacpac deployment fails with "target platform" error
 
-The Azure SQL Serverless database auto-pauses after 60 minutes of inactivity. The first request after a pause may take 30-60 seconds to resume. This is by design for cost optimization.
+If you see: *"A project which specifies SQL Server 2025 as the target platform cannot be published to Microsoft Azure SQL Database v12"*
+
+The SQL project's `DSP` must be set to Azure SQL Database:
+```xml
+<DSP>Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider</DSP>
+```
+Not `Sql170DatabaseSchemaProvider` (which targets on-premises SQL Server 2022+).
+
+### Database auto-paused (serverless) — slow first connection
+
+The Azure SQL Serverless database auto-pauses after 60 minutes of inactivity. The first connection after a pause may take **30-90 seconds** to resume. This affects:
+- The dacpac deployment (`Initializing deployment` appears to hang)
+- The first API request after idle
+
+This is by design for cost optimization. The `deploy-db.ps1` script has retry logic built in.
+
+### SQL firewall blocks connections
+
+The `deploy-db.ps1` and `grant-sql-access.ps1` scripts automatically add and remove temporary firewall rules for your IP. If running manually, add your IP first:
+```powershell
+$myIp = (Invoke-RestMethod -Uri "https://api.ipify.org")
+az sql server firewall-rule create --resource-group <rg> --server <sql-server> `
+  --name AllowMyIP --start-ip-address $myIp --end-ip-address $myIp
+```
+
+### PowerShell 5 vs PowerShell 7 warnings
+
+The azd hooks detect `pwsh` (PS7) syntax in scripts. If only PowerShell 5.1 is installed, azd falls back to `powershell`. Our scripts are compatible with PS5, but be aware of these PS5 limitations:
+- `Join-Path` only accepts 2 arguments (not multiple like PS7)
+- `Invoke-Sqlcmd` is not available (we use `sqlpackage` and `DeploySchema` tool instead)
+
+Install PS7 to avoid these warnings: `winget install Microsoft.PowerShell`
 
 ### ConnectionString property not initialized
 
@@ -503,6 +593,19 @@ Ensure `appsettings.Development.json` has the `DefaultConnection` string set for
 ### Invalid column name errors
 
 If you see `Invalid column name 'CreatedAt'` or similar, ensure you're using the latest code. The table uses `AddedAt` (not `CreatedAt`).
+
+### Post-provision hooks fail but infrastructure succeeds
+
+The postprovision hooks (dacpac deploy + SQL grant) may fail while the Azure resources are provisioned correctly. You can re-run just the hooks with:
+```powershell
+cd azd
+azd provision    # re-triggers postprovision hooks
+```
+Or run the scripts manually:
+```powershell
+./azd/scripts/deploy-db.ps1
+./azd/scripts/grant-sql-access.ps1
+```
 
 ---
 
@@ -514,4 +617,22 @@ If you see `Invalid column name 'CreatedAt'` or similar, ensure you're using the
 | **Serverless SQL** | Auto-pauses when idle — cost-effective for dev/POC workloads |
 | **Container Apps** | Scales to zero, no infrastructure management, built-in ingress/TLS |
 | **Dapper (not EF Core)** | Lightweight data access — the JSON is stored as-is in the `Value` column |
-| **SDK-style sqlproj** | Enables `dotnet build` without Visual Studio or SSDT installed |
+| **SDK-style sqlproj** | Enables `dotnet build` and dacpac output without Visual Studio or SSDT |
+| **Azure Verified Modules (AVM)** | Standardized, tested Bicep modules maintained by Microsoft — preferred over raw ARM resources |
+| **CAF naming conventions** | Default resource names follow Azure Cloud Adoption Framework; customers can override any name |
+| **azd/ folder isolation** | Azure deployment files are separate from application code; customers not using azd can use Bicep directly |
+| **dacpac for schema deployment** | Idempotent, declarative schema management via the SQL project — no manual migration scripts |
+| **Immutable server metadata** | Per MCP spec: metadata is immutable except status. New versions are added via POST, not updated |
+| **Temporary firewall rules** | Auto-added/removed during deployment — no persistent client IP exposure on SQL Server |
+
+---
+
+## MCP Registry Specification Notes
+
+Per the [Model Context Protocol registry specification](https://modelcontextprotocol.io):
+
+- **Server metadata is immutable** except for the `status` field (`active`, `deprecated`, `deleted`)
+- To publish changes, add a new version via `POST /v0.1/servers`
+- The `DELETE` endpoint sets status to `"deleted"` (soft-delete) — it does not remove data
+- `"deleted"` status indicates a server violated moderation policy (spam, malware, illegal)
+- Aggregators should keep their copy of each server's status up to date
