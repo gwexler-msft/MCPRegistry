@@ -10,7 +10,7 @@ CREATE TABLE Servers (
     CONSTRAINT CHK_Servers_Status CHECK (Status IN ('active', 'deprecated', 'deleted')),
     CONSTRAINT CHK_Servers_ServerNameFormat CHECK (ServerName LIKE '[a-zA-Z0-9]%/[a-zA-Z0-9]%'),
     CONSTRAINT CHK_Servers_VersionNotEmpty CHECK (LEN(LTRIM(RTRIM(Version))) > 0),
-    CONSTRAINT CHK_Servers_AddedAtReasonable CHECK (Added >= '2020-01-01' AND AddedAt <= DATEADD(DAY, 1, SYSDATETIMEOFFSET()))
+    CONSTRAINT CHK_Servers_AddedAtReasonable CHECK (AddedAt >= '2020-01-01' AND AddedAt <= DATEADD(DAY, 1, SYSDATETIMEOFFSET()))
 );
 
 GO;

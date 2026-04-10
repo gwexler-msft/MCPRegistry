@@ -87,7 +87,7 @@ The API will be available at:
 
 ## Testing
 
-Use the included `MCPRegistry.http` file to test the API endpoints directly from VS Code (requires REST Client extension).
+Use the included `MCPRegistry.http` file to test the API endpoints directly from VS Code (requires REST Client extension) or natively in Visual Studio.
 
 
 ## Sample Data
@@ -201,6 +201,18 @@ To support other data stores (e.g., PostgreSQL, MongoDB, in-memory, etc.), imple
 **Key extensibility point:**
 
 - Implement the `IServerRepository` interface to add support for a new data store.
+
+## Server Metadata & Status
+
+Server metadata is generally **immutable** once published, with the exception of the `status` field. The status may be updated to reflect lifecycle changes such as `"deprecated"` or `"deleted"`.
+
+As recommended by the [MCP Registry Aggregators documentation](https://github.com/modelcontextprotocol/registry/blob/main/docs/modelcontextprotocol-io/registry-aggregators.mdx), aggregators should keep their copy of each server's status up to date.
+
+### Status values
+
+- **`active`** — The server version is available and functioning normally.
+- **`deprecated`** — The server version is no longer recommended for use.
+- **`deleted`** — The server has violated the MCP.IO registry permissive moderation policy (e.g., spam, malware, or illegal content). You may prefer to remove these servers from their your index registry entirely.
 
 ## Notes
 
