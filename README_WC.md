@@ -12,6 +12,9 @@
 8. [Post-Deployment: Schema & Data](#post-deployment-schema--data)
 9. [Redeployment & Updates](#redeployment--updates)
 10. [Troubleshooting](#troubleshooting)
+11. [Key Design Decisions](#key-design-decisions)
+12. [MCP Registry Specification Notes](#mcp-registry-specification-notes)
+13. [Production Hardening: Private VNet Deployment](#production-hardening-private-vnet-deployment)
 
 ---
 
@@ -636,3 +639,68 @@ Per the [Model Context Protocol registry specification](https://modelcontextprot
 - The `DELETE` endpoint sets status to `"deleted"` (soft-delete) — it does not remove data
 - `"deleted"` status indicates a server violated moderation policy (spam, malware, illegal)
 - Aggregators should keep their copy of each server's status up to date
+
+---
+
+## Production Hardening: Private VNet Deployment
+
+The default deployment uses public endpoints with Entra-only auth and `AllowAzureServices` firewall rules, which is appropriate for POC/dev. For production environments requiring network isolation, the following architecture is recommended:
+
+### Architecture
+
+```
+                    ┌──────────────────────────────────────────┐
+                    │              Virtual Network             │
+                    │                                          │
+  Internet ──►  [Application    ┌─────────────────────┐       │
+                 Gateway /      │  Container Apps      │       │
+                 Front Door]──► │  Environment         │       │
+                                │  (internal: true)    │       │
+                                │  ┌────────────────┐  │       │
+                                │  │ Container App  │  │       │
+                                │  └───────┬────────┘  │       │
+                                └──────────┼──────────-┘       │
+                                           │                   │
+                                ┌──────────┼───────────┐       │
+                                │  SQL Private Endpoint │       │
+                                │  (privatelink.        │       │
+                                │   database.windows.net)       │
+                                └──────────┼───────────┘       │
+                    └──────────────────────┼───────────────────┘
+                                           │
+                                    ┌──────▼──────┐
+                                    │  Azure SQL  │
+                                    │  Server     │
+                                    │  (public    │
+                                    │  access OFF)│
+                                    └─────────────┘
+```
+
+### Required changes
+
+| Component | Current (POC) | Private VNet |
+|-----------|---------------|--------------|
+| **VNet** | Not used | Create VNet with 2+ subnets |
+| **Container Apps Environment** | Public (`publicNetworkAccess: Enabled`) | Internal (`internal: true`, deployed into VNet subnet) |
+| **SQL Server** | Public (`publicNetworkAccess: Enabled`, `AllowAzureServices` FW rule) | Private (`publicNetworkAccess: Disabled`, private endpoint in VNet) |
+| **SQL DNS** | Public `*.database.windows.net` | Private DNS zone `privatelink.database.windows.net` |
+| **API access** | Direct public FQDN | Application Gateway or Azure Front Door for ingress |
+| **ACR** | Public with admin auth | Private endpoint or managed identity-based pull |
+| **Deployment scripts** | Connect over public internet | Require VPN/bastion or run from within VNet |
+
+### Bicep additions needed
+
+1. **VNet + subnets** — `avm/res/network/virtual-network`
+2. **SQL Private Endpoint** — `avm/res/network/private-endpoint`
+3. **Private DNS Zone** — `privatelink.database.windows.net` linked to VNet
+4. **Container Apps Environment** — set `internal: true`, `infrastructureSubnetResourceId`
+5. **Application Gateway** (optional) — for external HTTPS ingress
+
+### Deployment script impact
+
+With `publicNetworkAccess: Disabled` and no public endpoint, the `deploy-db.ps1` and `grant-sql-access.ps1` scripts cannot connect from a developer workstation. Options:
+- Run deployment scripts from a **jumpbox VM** or **Azure Bastion** inside the VNet
+- Use a **self-hosted azd pipeline agent** inside the VNet
+- Temporarily enable public access during deployment (current script approach works for this)
+
+> **Note:** This is a significant infrastructure change. Evaluate based on your organization's network security requirements and existing VNet topology.

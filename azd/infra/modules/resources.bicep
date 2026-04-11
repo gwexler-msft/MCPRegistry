@@ -65,6 +65,7 @@ module sqlServer 'br/public:avm/res/sql/server:0.21.1' = {
     location: location
     tags: tags
     minimalTlsVersion: '1.2'
+    publicNetworkAccess: 'Enabled'
     administrators: {
       administratorType: 'ActiveDirectory'
       principalType: 'User'
