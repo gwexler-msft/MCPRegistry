@@ -176,11 +176,76 @@ module containerApp 'br/public:avm/res/app/container-app:0.22.0' = {
   }
 }
 
+module containerAppUi 'br/public:avm/res/app/container-app:0.22.0' = {
+  name: 'containerAppUi'
+  dependsOn: [containerRegistry]
+  params: {
+    name: names.containerAppUi
+    location: location
+    tags: union(tags, { 'azd-service-name': 'ui' })
+    environmentResourceId: containerAppsEnv.outputs.resourceId
+    activeRevisionsMode: 'Single'
+    ingressExternal: true
+    ingressTargetPort: 8080
+    ingressTransport: 'auto'
+    ingressAllowInsecure: false
+    registries: [
+      {
+        server: containerRegistry.outputs.loginServer
+        username: acrRef.listCredentials().username
+        passwordSecretRef: 'registry-password'
+      }
+    ]
+    secrets: [
+      {
+        name: 'registry-password'
+        value: acrRef.listCredentials().passwords[0].value
+      }
+    ]
+    containers: [
+      {
+        name: 'mcpregistry-ui'
+        image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+        resources: {
+          cpu: '0.25'
+          memory: '0.5Gi'
+        }
+        env: [
+          {
+            name: 'ASPNETCORE_ENVIRONMENT'
+            value: 'Production'
+          }
+          {
+            name: 'ApiBaseUrl'
+            value: 'https://${containerApp.outputs.fqdn}'
+          }
+        ]
+      }
+    ]
+    scaleSettings: {
+      minReplicas: 0
+      maxReplicas: 2
+      rules: [
+        {
+          name: 'http-rule'
+          http: {
+            metadata: {
+              concurrentRequests: '50'
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+
 output containerRegistryEndpoint string = containerRegistry.outputs.loginServer
 output containerRegistryName string = containerRegistry.outputs.name
 output sqlServerName string = sqlServer.outputs.name
 output sqlDatabaseName string = names.sqlDatabase
 output apiUrl string = 'https://${containerApp.outputs.fqdn}'
+output uiUrl string = 'https://${containerAppUi.outputs.fqdn}'
 output containerAppName string = containerApp.outputs.name
+output containerAppUiName string = containerAppUi.outputs.name
 output managedIdentityName string = managedIdentity.outputs.name
 output managedIdentityClientId string = managedIdentity.outputs.clientId

@@ -51,6 +51,7 @@ var resolvedNames = {
   sqlServer: !empty(sqlServerName) ? sqlServerName : getDefaultName('sql', workloadName, suffix)
   sqlDatabase: sqlDatabaseName
   containerApp: !empty(containerAppName) ? containerAppName : getDefaultName('ca', workloadName, suffix)
+  containerAppUi: getDefaultName('ca', '${workloadName}-ui', suffix)
 }
 
 resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {
@@ -76,4 +77,6 @@ output AZURE_CONTAINER_REGISTRY_NAME string = resources.outputs.containerRegistr
 output AZURE_SQL_SERVER_NAME string = resources.outputs.sqlServerName
 output AZURE_SQL_DATABASE_NAME string = resources.outputs.sqlDatabaseName
 output API_URL string = resources.outputs.apiUrl
+output UI_URL string = resources.outputs.uiUrl
 output SERVICE_WEB_NAME string = resources.outputs.containerAppName
+output SERVICE_UI_NAME string = resources.outputs.containerAppUiName
