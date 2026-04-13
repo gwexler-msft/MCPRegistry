@@ -4,6 +4,9 @@
     <File Path="data/sample-seed-data.json" />
     <File Path="README.md" />
   </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/MCPRegistry.Tests/MCPRegistry.Tests.csproj" />
+  </Folder>
   <Project Path="src/MCPRegistry/MCPRegistry.csproj" />
   <Project Path="src/MCPRegistryDatabase/MCPRegistryDatabase.sqlproj" />
 </Solution>
