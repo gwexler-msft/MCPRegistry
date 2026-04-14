@@ -39,3 +39,17 @@ hooks:
       run: |
         ./scripts/deploy-db.ps1
         ./scripts/grant-sql-access.ps1
+  predeploy:
+    posix:
+      shell: sh
+      run: az acr update --name $(azd env get-value AZURE_CONTAINER_REGISTRY_NAME) --admin-enabled true --output none
+    windows:
+      shell: pwsh
+      run: az acr update --name (azd env get-value AZURE_CONTAINER_REGISTRY_NAME) --admin-enabled true --output none
+  postdeploy:
+    posix:
+      shell: sh
+      run: az acr update --name $(azd env get-value AZURE_CONTAINER_REGISTRY_NAME) --admin-enabled false --output none
+    windows:
+      shell: pwsh
+      run: az acr update --name (azd env get-value AZURE_CONTAINER_REGISTRY_NAME) --admin-enabled false --output none

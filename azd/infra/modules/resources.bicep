@@ -12,6 +12,12 @@ param principalId string
 @description('Entra ID principal display name for SQL admin')
 param principalName string
 
+@description('Container image for the API app')
+param apiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+
+@description('Container image for the UI app')
+param uiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+
 module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.15.0' = {
   name: 'logAnalytics'
   params: {
@@ -30,7 +36,14 @@ module containerRegistry 'br/public:avm/res/container-registry/registry:0.12.0' 
     location: location
     tags: tags
     acrSku: 'Basic'
-    acrAdminUserEnabled: true
+    acrAdminUserEnabled: false
+    roleAssignments: [
+      {
+        principalId: managedIdentity.outputs.principalId
+        principalType: 'ServicePrincipal'
+        roleDefinitionIdOrName: '7f951dda-4ed3-4680-a7ca-43fe172d538d' // AcrPull — container apps use managed identity to pull
+      }
+    ]
   }
 }
 
@@ -100,10 +113,6 @@ module sqlServer 'br/public:avm/res/sql/server:0.21.1' = {
   }
 }
 
-resource acrRef 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
-  name: names.containerRegistry
-}
-
 module containerApp 'br/public:avm/res/app/container-app:0.22.0' = {
   name: 'containerApp'
   dependsOn: [containerRegistry]
@@ -125,20 +134,13 @@ module containerApp 'br/public:avm/res/app/container-app:0.22.0' = {
     registries: [
       {
         server: containerRegistry.outputs.loginServer
-        username: acrRef.listCredentials().username
-        passwordSecretRef: 'registry-password'
-      }
-    ]
-    secrets: [
-      {
-        name: 'registry-password'
-        value: acrRef.listCredentials().passwords[0].value
+        identity: managedIdentity.outputs.resourceId
       }
     ]
     containers: [
       {
         name: 'mcpregistry'
-        image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+        image: apiContainerImage
         resources: {
           cpu: '0.5'
           memory: '1Gi'
@@ -184,6 +186,11 @@ module containerAppUi 'br/public:avm/res/app/container-app:0.22.0' = {
     location: location
     tags: union(tags, { 'azd-service-name': 'ui' })
     environmentResourceId: containerAppsEnv.outputs.resourceId
+    managedIdentities: {
+      userAssignedResourceIds: [
+        managedIdentity.outputs.resourceId
+      ]
+    }
     activeRevisionsMode: 'Single'
     ingressExternal: true
     ingressTargetPort: 8080
@@ -192,20 +199,13 @@ module containerAppUi 'br/public:avm/res/app/container-app:0.22.0' = {
     registries: [
       {
         server: containerRegistry.outputs.loginServer
-        username: acrRef.listCredentials().username
-        passwordSecretRef: 'registry-password'
-      }
-    ]
-    secrets: [
-      {
-        name: 'registry-password'
-        value: acrRef.listCredentials().passwords[0].value
+        identity: managedIdentity.outputs.resourceId
       }
     ]
     containers: [
       {
         name: 'mcpregistry-ui'
-        image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+        image: uiContainerImage
         resources: {
           cpu: '0.25'
           memory: '0.5Gi'

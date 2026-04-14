@@ -14,7 +14,7 @@
 10. [Troubleshooting](#troubleshooting)
 11. [Key Design Decisions](#key-design-decisions)
 12. [MCP Registry Specification Notes](#mcp-registry-specification-notes)
-13. [Production Hardening: Private VNet Deployment](#production-hardening-private-vnet-deployment)
+13. [Production Hardening](#production-hardening)
 
 ---
 
@@ -269,6 +269,8 @@ All endpoints are prefixed with `/v0.1`. Swagger UI is available at `/swagger` o
 
 ### Example: Add a server (POST)
 
+Server names follow the `domain/name` format per the [MCP registry naming convention](https://modelcontextprotocol.io). You can use any domain that makes sense for your setup (e.g., `io.github.myorg/my-server`, `com.mycompany/tool-name`).
+
 ```bash
 POST /v0.1/servers
 Content-Type: application/json
@@ -286,6 +288,8 @@ Content-Type: application/json
 ---
 
 ## Azure Deployment
+
+This guide uses [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/) for deployment. You can also deploy using standard Azure CLI (`az deployment`) or the Azure Portal by targeting `azd/infra/main.bicep` directly — adjust `main.parameters.json` to supply parameter values manually instead of relying on azd environment variables.
 
 ### Architecture
 
@@ -416,6 +420,7 @@ az sql server conn-policy update `
   --connection-type Proxy
 
 # Build the dacpac and deploy (run from repo root)
+# Note: The SQL Database Project (.sqlproj) can only be built on Windows
 dotnet build src/MCPRegistryDatabase/MCPRegistryDatabase.sqlproj -c Release
 
 $token = az account get-access-token --resource "https://database.windows.net/" --query accessToken -o tsv
@@ -536,7 +541,7 @@ azd up
 
 ### Container App fails with MANIFEST_UNKNOWN during first provision
 
-The initial `azd provision` may fail because the Container App references an image that hasn't been pushed yet. The Bicep uses a placeholder image (`mcr.microsoft.com/azuredocs/containerapps-helloworld:latest`) for the first provisioning. If you see this error, run `azd provision` again.
+The initial `azd provision` may fail because the Container App references an image that hasn't been pushed yet. The Bicep parameters `apiContainerImage` and `uiContainerImage` default to a placeholder image for the first provisioning. If you see this error, run `azd provision` again. For classic (non-azd) deployments, set these parameters to your actual ACR image paths.
 
 ### Container App fails with UNAUTHORIZED pulling from ACR
 
@@ -642,65 +647,11 @@ Per the [Model Context Protocol registry specification](https://modelcontextprot
 
 ---
 
-## Production Hardening: Private VNet Deployment
+## Production Hardening
 
-The default deployment uses public endpoints with Entra-only auth and `AllowAzureServices` firewall rules, which is appropriate for POC/dev. For production environments requiring network isolation, the following architecture is recommended:
+The default deployment uses public endpoints with Entra-only auth and `AllowAzureServices` firewall rules, which is appropriate for POC/dev. For production environments, follow the Azure Well-Architected Framework and Cloud Adoption Framework guidance:
 
-### Architecture
-
-```
-                    ┌──────────────────────────────────────────┐
-                    │              Virtual Network             │
-                    │                                          │
-  Internet ──►  [Application    ┌─────────────────────┐       │
-                 Gateway /      │  Container Apps      │       │
-                 Front Door]──► │  Environment         │       │
-                                │  (internal: true)    │       │
-                                │  ┌────────────────┐  │       │
-                                │  │ Container App  │  │       │
-                                │  └───────┬────────┘  │       │
-                                └──────────┼──────────-┘       │
-                                           │                   │
-                                ┌──────────┼───────────┐       │
-                                │  SQL Private Endpoint │       │
-                                │  (privatelink.        │       │
-                                │   database.windows.net)       │
-                                └──────────┼───────────┘       │
-                    └──────────────────────┼───────────────────┘
-                                           │
-                                    ┌──────▼──────┐
-                                    │  Azure SQL  │
-                                    │  Server     │
-                                    │  (public    │
-                                    │  access OFF)│
-                                    └─────────────┘
-```
-
-### Required changes
-
-| Component | Current (POC) | Private VNet |
-|-----------|---------------|--------------|
-| **VNet** | Not used | Create VNet with 2+ subnets |
-| **Container Apps Environment** | Public (`publicNetworkAccess: Enabled`) | Internal (`internal: true`, deployed into VNet subnet) |
-| **SQL Server** | Public (`publicNetworkAccess: Enabled`, `AllowAzureServices` FW rule) | Private (`publicNetworkAccess: Disabled`, private endpoint in VNet) |
-| **SQL DNS** | Public `*.database.windows.net` | Private DNS zone `privatelink.database.windows.net` |
-| **API access** | Direct public FQDN | Application Gateway or Azure Front Door for ingress |
-| **ACR** | Public with admin auth | Private endpoint or managed identity-based pull |
-| **Deployment scripts** | Connect over public internet | Require VPN/bastion or run from within VNet |
-
-### Bicep additions needed
-
-1. **VNet + subnets** — `avm/res/network/virtual-network`
-2. **SQL Private Endpoint** — `avm/res/network/private-endpoint`
-3. **Private DNS Zone** — `privatelink.database.windows.net` linked to VNet
-4. **Container Apps Environment** — set `internal: true`, `infrastructureSubnetResourceId`
-5. **Application Gateway** (optional) — for external HTTPS ingress
-
-### Deployment script impact
-
-With `publicNetworkAccess: Disabled` and no public endpoint, the `deploy-db.ps1` and `grant-sql-access.ps1` scripts cannot connect from a developer workstation. Options:
-- Run deployment scripts from a **jumpbox VM** or **Azure Bastion** inside the VNet
-- Use a **self-hosted azd pipeline agent** inside the VNet
-- Temporarily enable public access during deployment (current script approach works for this)
-
-> **Note:** This is a significant infrastructure change. Evaluate based on your organization's network security requirements and existing VNet topology.
+- [Azure Well-Architected Framework](https://learn.microsoft.com/azure/well-architected/)
+- [Cloud Adoption Framework — Azure landing zones](https://learn.microsoft.com/azure/cloud-adoption-framework/ready/landing-zone/)
+- [Container Apps landing zone accelerator](https://learn.microsoft.com/azure/cloud-adoption-framework/scenarios/app-platform/container-apps/landing-zone-accelerator)
+- [Azure SQL security best practices](https://learn.microsoft.com/azure/azure-sql/database/security-best-practice)

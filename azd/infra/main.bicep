@@ -39,6 +39,12 @@ param sqlDatabaseName string = 'MCPRegistry'
 @description('Override: Container App name')
 param containerAppName string = ''
 
+@description('Container image for the API app (default: placeholder for initial provision)')
+param apiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+
+@description('Container image for the UI app (default: placeholder for initial provision)')
+param uiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+
 var suffix = generateSuffix(subscription().subscriptionId, environmentName, location)
 var tags = union({ 'azd-env-name': environmentName }, customTags)
 
@@ -68,6 +74,8 @@ module resources './modules/resources.bicep' = {
     principalId: principalId
     principalName: principalName
     names: resolvedNames
+    apiContainerImage: apiContainerImage
+    uiContainerImage: uiContainerImage
   }
 }
 

@@ -5,21 +5,21 @@ using MCPRegistry.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using Moq;
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 namespace MCPRegistry.Tests.Controllers;
 
 public class ServersControllerTests
 {
-    private readonly Mock<IServerRegistryService> _mockService;
-    private readonly Mock<ILogger<ServersController>> _mockLogger;
+    private readonly IServerRegistryService _service;
     private readonly ServersController _controller;
 
     public ServersControllerTests()
     {
-        _mockService = new Mock<IServerRegistryService>();
-        _mockLogger = new Mock<ILogger<ServersController>>();
-        _controller = new ServersController(_mockService.Object, _mockLogger.Object);
+        _service = Substitute.For<IServerRegistryService>();
+        var logger = Substitute.For<ILogger<ServersController>>();
+        _controller = new ServersController(_service, logger);
     }
 
     private static ServerDetail CreateTestServer(string name = "com.test/server", string version = "1.0.0") => new()
@@ -34,13 +34,11 @@ public class ServersControllerTests
         IsLatest = true
     };
 
-    // --- ListServers ---
-
     [Fact]
     public async Task ListServers_ReturnsEmptyList_WhenNoServersExist()
     {
-        _mockService.Setup(s => s.GetServersAsync(null, null, null, null, null))
-            .ReturnsAsync((new List<ServerDetail>(), (string?)null));
+        _service.GetServersAsync(null, null, null, null, null)
+            .Returns((new List<ServerDetail>(), (string?)null));
 
         var result = await _controller.ListServers(null, null, null, null, null);
 
@@ -54,8 +52,8 @@ public class ServersControllerTests
     public async Task ListServers_ReturnsServers_WhenServersExist()
     {
         var servers = new List<ServerDetail> { CreateTestServer() };
-        _mockService.Setup(s => s.GetServersAsync(null, null, null, null, null))
-            .ReturnsAsync((servers, (string?)null));
+        _service.GetServersAsync(null, null, null, null, null)
+            .Returns((servers, (string?)null));
 
         var result = await _controller.ListServers(null, null, null, null, null);
 
@@ -99,8 +97,8 @@ public class ServersControllerTests
     [InlineData("1.0.0+build.123")]
     public async Task ListServers_AcceptsValidVersionFormats(string version)
     {
-        _mockService.Setup(s => s.GetServersAsync(null, null, null, null, version))
-            .ReturnsAsync((new List<ServerDetail>(), (string?)null));
+        _service.GetServersAsync(null, null, null, null, version)
+            .Returns((new List<ServerDetail>(), (string?)null));
 
         var result = await _controller.ListServers(null, null, null, null, version);
 
@@ -110,18 +108,18 @@ public class ServersControllerTests
     [Fact]
     public async Task ListServers_PassesSearchToService()
     {
-        _mockService.Setup(s => s.GetServersAsync(null, null, "azure", null, null))
-            .ReturnsAsync((new List<ServerDetail>(), (string?)null));
+        _service.GetServersAsync(null, null, "azure", null, null)
+            .Returns((new List<ServerDetail>(), (string?)null));
 
         await _controller.ListServers(null, null, "azure", null, null);
 
-        _mockService.Verify(s => s.GetServersAsync(null, null, "azure", null, null), Times.Once);
+        await _service.Received(1).GetServersAsync(null, null, "azure", null, null);
     }
 
     [Fact]
     public async Task ListServers_Returns500_WhenServiceThrows()
     {
-        _mockService.Setup(s => s.GetServersAsync(null, null, null, null, null))
+        _service.GetServersAsync(null, null, null, null, null)
             .ThrowsAsync(new Exception("DB error"));
 
         var result = await _controller.ListServers(null, null, null, null, null);
@@ -130,13 +128,11 @@ public class ServersControllerTests
         problemResult.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
     }
 
-    // --- ListServerVersions ---
-
     [Fact]
     public async Task ListServerVersions_ReturnsNotFound_WhenServerDoesNotExist()
     {
-        _mockService.Setup(s => s.GetServerVersionsAsync("com.test/unknown"))
-            .ReturnsAsync(new List<ServerDetail>());
+        _service.GetServerVersionsAsync("com.test/unknown")
+            .Returns(new List<ServerDetail>());
 
         var result = await _controller.ListServerVersions("com.test", "unknown");
 
@@ -151,8 +147,8 @@ public class ServersControllerTests
             CreateTestServer(version: "1.0.0"),
             CreateTestServer(version: "2.0.0")
         };
-        _mockService.Setup(s => s.GetServerVersionsAsync("com.test/server"))
-            .ReturnsAsync(versions);
+        _service.GetServerVersionsAsync("com.test/server")
+            .Returns(versions);
 
         var result = await _controller.ListServerVersions("com.test", "server");
 
@@ -165,21 +161,19 @@ public class ServersControllerTests
     [Fact]
     public async Task ListServerVersions_DecodesUrlEncodedServerName()
     {
-        _mockService.Setup(s => s.GetServerVersionsAsync("com.test/server"))
-            .ReturnsAsync(new List<ServerDetail> { CreateTestServer() });
+        _service.GetServerVersionsAsync("com.test/server")
+            .Returns(new List<ServerDetail> { CreateTestServer() });
 
         await _controller.ListServerVersions("com.test", "server");
 
-        _mockService.Verify(s => s.GetServerVersionsAsync("com.test/server"), Times.Once);
+        await _service.Received(1).GetServerVersionsAsync("com.test/server");
     }
-
-    // --- GetServerVersion ---
 
     [Fact]
     public async Task GetServerVersion_ReturnsNotFound_WhenVersionDoesNotExist()
     {
-        _mockService.Setup(s => s.GetServerVersionAsync("com.test/server", "9.9.9"))
-            .ReturnsAsync((ServerDetail?)null);
+        _service.GetServerVersionAsync("com.test/server", "9.9.9")
+            .Returns((ServerDetail?)null);
 
         var result = await _controller.GetServerVersion("com.test", "server", "9.9.9");
 
@@ -190,8 +184,8 @@ public class ServersControllerTests
     public async Task GetServerVersion_ReturnsServer_WhenVersionExists()
     {
         var server = CreateTestServer();
-        _mockService.Setup(s => s.GetServerVersionAsync("com.test/server", "1.0.0"))
-            .ReturnsAsync(server);
+        _service.GetServerVersionAsync("com.test/server", "1.0.0")
+            .Returns(server);
 
         var result = await _controller.GetServerVersion("com.test", "server", "1.0.0");
 
@@ -204,8 +198,8 @@ public class ServersControllerTests
     public async Task GetServerVersion_IncludesMetadata()
     {
         var server = CreateTestServer();
-        _mockService.Setup(s => s.GetServerVersionAsync("com.test/server", "1.0.0"))
-            .ReturnsAsync(server);
+        _service.GetServerVersionAsync("com.test/server", "1.0.0")
+            .Returns(server);
 
         var result = await _controller.GetServerVersion("com.test", "server", "1.0.0");
 
@@ -214,13 +208,11 @@ public class ServersControllerTests
         response.Meta.Should().ContainKey("io.modelcontextprotocol.registry/official");
     }
 
-    // --- DeleteServerVersion ---
-
     [Fact]
     public async Task DeleteServerVersion_ReturnsNotFound_WhenServerDoesNotExist()
     {
-        _mockService.Setup(s => s.GetServerVersionAsync("com.test/server", "1.0.0"))
-            .ReturnsAsync((ServerDetail?)null);
+        _service.GetServerVersionAsync("com.test/server", "1.0.0")
+            .Returns((ServerDetail?)null);
 
         var result = await _controller.DeleteServerVersion("com.test", "server", "1.0.0");
 
@@ -230,10 +222,10 @@ public class ServersControllerTests
     [Fact]
     public async Task DeleteServerVersion_ReturnsOk_WhenDeleteSucceeds()
     {
-        _mockService.Setup(s => s.GetServerVersionAsync("com.test/server", "1.0.0"))
-            .ReturnsAsync(CreateTestServer());
-        _mockService.Setup(s => s.DeleteServerVersionAsync("com.test/server", "1.0.0"))
-            .ReturnsAsync(true);
+        _service.GetServerVersionAsync("com.test/server", "1.0.0")
+            .Returns(CreateTestServer());
+        _service.DeleteServerVersionAsync("com.test/server", "1.0.0")
+            .Returns(true);
 
         var result = await _controller.DeleteServerVersion("com.test", "server", "1.0.0");
 
@@ -243,18 +235,16 @@ public class ServersControllerTests
     [Fact]
     public async Task DeleteServerVersion_Returns500_WhenDeleteFails()
     {
-        _mockService.Setup(s => s.GetServerVersionAsync("com.test/server", "1.0.0"))
-            .ReturnsAsync(CreateTestServer());
-        _mockService.Setup(s => s.DeleteServerVersionAsync("com.test/server", "1.0.0"))
-            .ReturnsAsync(false);
+        _service.GetServerVersionAsync("com.test/server", "1.0.0")
+            .Returns(CreateTestServer());
+        _service.DeleteServerVersionAsync("com.test/server", "1.0.0")
+            .Returns(false);
 
         var result = await _controller.DeleteServerVersion("com.test", "server", "1.0.0");
 
         var problemResult = result.Should().BeOfType<ObjectResult>().Subject;
         problemResult.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
     }
-
-    // --- AddServers ---
 
     [Fact]
     public async Task AddServers_ReturnsBadRequest_WhenListIsEmpty()
@@ -272,7 +262,7 @@ public class ServersControllerTests
         var result = await _controller.AddServers(servers);
 
         result.Should().BeOfType<CreatedResult>();
-        _mockService.Verify(s => s.AddServerAsync(It.IsAny<ServerDetail>()), Times.Once);
+        await _service.Received(1).AddServerAsync(Arg.Any<ServerDetail>());
     }
 
     [Fact]
@@ -286,13 +276,13 @@ public class ServersControllerTests
 
         await _controller.AddServers(servers);
 
-        _mockService.Verify(s => s.AddServerAsync(It.IsAny<ServerDetail>()), Times.Exactly(2));
+        await _service.Received(2).AddServerAsync(Arg.Any<ServerDetail>());
     }
 
     [Fact]
     public async Task AddServers_Returns500_WhenServiceThrows()
     {
-        _mockService.Setup(s => s.AddServerAsync(It.IsAny<ServerDetail>()))
+        _service.AddServerAsync(Arg.Any<ServerDetail>())
             .ThrowsAsync(new Exception("DB error"));
 
         var result = await _controller.AddServers(new List<ServerDetail> { CreateTestServer() });

@@ -13,8 +13,7 @@ public class ServersController : ControllerBase
     private readonly IServerRegistryService _registryService;
     private readonly ILogger<ServersController> _logger;
 
-    // Regex to validate semantic versioning (semver) format
-    // follows Backus�Naur Form Grammar for Valid SemVer Versions (https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)
+    // Backus-Naur Form Grammar for Valid SemVer Versions (https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)
     private readonly Regex _versionRegex = new Regex(
         @"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[0-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);

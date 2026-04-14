@@ -2,19 +2,19 @@ using FluentAssertions;
 using MCPRegistry.Data;
 using MCPRegistry.Models;
 using MCPRegistry.Services;
-using Moq;
+using NSubstitute;
 
 namespace MCPRegistry.Tests.Services;
 
 public class ServerRegistryServiceTests
 {
-    private readonly Mock<IServerRepository> _mockRepo;
+    private readonly IServerRepository _repo;
     private readonly ServerRegistryService _service;
 
     public ServerRegistryServiceTests()
     {
-        _mockRepo = new Mock<IServerRepository>();
-        _service = new ServerRegistryService(_mockRepo.Object);
+        _repo = Substitute.For<IServerRepository>();
+        _service = new ServerRegistryService(_repo);
     }
 
     private static ServerDetail CreateTestServer(string name = "com.test/server", string version = "1.0.0") => new()
@@ -28,50 +28,48 @@ public class ServerRegistryServiceTests
         IsLatest = true
     };
 
-    // --- GetServersAsync ---
-
     [Fact]
     public async Task GetServersAsync_DefaultsTo30PageSize()
     {
-        _mockRepo.Setup(r => r.GetServersAsync(null, null, 30, null, null, null))
-            .ReturnsAsync(new List<ServerDetail>());
+        _repo.GetServersAsync(null, null, 30, null, null, null)
+            .Returns(new List<ServerDetail>());
 
         await _service.GetServersAsync(null, null, null, null, null);
 
-        _mockRepo.Verify(r => r.GetServersAsync(null, null, 30, null, null, null), Times.Once);
+        await _repo.Received(1).GetServersAsync(null, null, 30, null, null, null);
     }
 
     [Fact]
     public async Task GetServersAsync_UsesProvidedLimit()
     {
-        _mockRepo.Setup(r => r.GetServersAsync(null, null, 10, null, null, null))
-            .ReturnsAsync(new List<ServerDetail>());
+        _repo.GetServersAsync(null, null, 10, null, null, null)
+            .Returns(new List<ServerDetail>());
 
         await _service.GetServersAsync(null, 10, null, null, null);
 
-        _mockRepo.Verify(r => r.GetServersAsync(null, null, 10, null, null, null), Times.Once);
+        await _repo.Received(1).GetServersAsync(null, null, 10, null, null, null);
     }
 
     [Fact]
     public async Task GetServersAsync_ParsesCompositeCursor()
     {
-        _mockRepo.Setup(r => r.GetServersAsync("com.test/server", "1.0.0", 30, null, null, null))
-            .ReturnsAsync(new List<ServerDetail>());
+        _repo.GetServersAsync("com.test/server", "1.0.0", 30, null, null, null)
+            .Returns(new List<ServerDetail>());
 
         await _service.GetServersAsync("com.test/server:1.0.0", null, null, null, null);
 
-        _mockRepo.Verify(r => r.GetServersAsync("com.test/server", "1.0.0", 30, null, null, null), Times.Once);
+        await _repo.Received(1).GetServersAsync("com.test/server", "1.0.0", 30, null, null, null);
     }
 
     [Fact]
     public async Task GetServersAsync_TreatsMalformedCursorAsServerNameOnly()
     {
-        _mockRepo.Setup(r => r.GetServersAsync("malformed-cursor", null, 30, null, null, null))
-            .ReturnsAsync(new List<ServerDetail>());
+        _repo.GetServersAsync("malformed-cursor", null, 30, null, null, null)
+            .Returns(new List<ServerDetail>());
 
         await _service.GetServersAsync("malformed-cursor", null, null, null, null);
 
-        _mockRepo.Verify(r => r.GetServersAsync("malformed-cursor", null, 30, null, null, null), Times.Once);
+        await _repo.Received(1).GetServersAsync("malformed-cursor", null, 30, null, null, null);
     }
 
     [Fact]
@@ -80,8 +78,8 @@ public class ServerRegistryServiceTests
         var servers = Enumerable.Range(1, 30)
             .Select(i => CreateTestServer(version: $"{i}.0.0"))
             .ToList();
-        _mockRepo.Setup(r => r.GetServersAsync(null, null, 30, null, null, null))
-            .ReturnsAsync(servers);
+        _repo.GetServersAsync(null, null, 30, null, null, null)
+            .Returns(servers);
 
         var (_, nextCursor) = await _service.GetServersAsync(null, null, null, null, null);
 
@@ -92,8 +90,8 @@ public class ServerRegistryServiceTests
     public async Task GetServersAsync_ReturnsNullCursor_WhenPageIsNotFull()
     {
         var servers = new List<ServerDetail> { CreateTestServer() };
-        _mockRepo.Setup(r => r.GetServersAsync(null, null, 30, null, null, null))
-            .ReturnsAsync(servers);
+        _repo.GetServersAsync(null, null, 30, null, null, null)
+            .Returns(servers);
 
         var (_, nextCursor) = await _service.GetServersAsync(null, null, null, null, null);
 
@@ -104,22 +102,20 @@ public class ServerRegistryServiceTests
     public async Task GetServersAsync_PassesSearchAndFilters()
     {
         var updatedSince = new DateTime(2026, 1, 1);
-        _mockRepo.Setup(r => r.GetServersAsync(null, null, 30, "azure", updatedSince, "latest"))
-            .ReturnsAsync(new List<ServerDetail>());
+        _repo.GetServersAsync(null, null, 30, "azure", updatedSince, "latest")
+            .Returns(new List<ServerDetail>());
 
         await _service.GetServersAsync(null, null, "azure", updatedSince, "latest");
 
-        _mockRepo.Verify(r => r.GetServersAsync(null, null, 30, "azure", updatedSince, "latest"), Times.Once);
+        await _repo.Received(1).GetServersAsync(null, null, 30, "azure", updatedSince, "latest");
     }
-
-    // --- GetServerVersionsAsync ---
 
     [Fact]
     public async Task GetServerVersionsAsync_DelegatesToRepository()
     {
         var versions = new List<ServerDetail> { CreateTestServer() };
-        _mockRepo.Setup(r => r.GetServerVersionsAsync("com.test/server"))
-            .ReturnsAsync(versions);
+        _repo.GetServerVersionsAsync("com.test/server")
+            .Returns(versions);
 
         var result = await _service.GetServerVersionsAsync("com.test/server");
 
@@ -129,22 +125,20 @@ public class ServerRegistryServiceTests
     [Fact]
     public async Task GetServerVersionsAsync_ReturnsEmpty_WhenServerNotFound()
     {
-        _mockRepo.Setup(r => r.GetServerVersionsAsync("com.test/unknown"))
-            .ReturnsAsync(new List<ServerDetail>());
+        _repo.GetServerVersionsAsync("com.test/unknown")
+            .Returns(new List<ServerDetail>());
 
         var result = await _service.GetServerVersionsAsync("com.test/unknown");
 
         result.Should().BeEmpty();
     }
 
-    // --- GetServerVersionAsync ---
-
     [Fact]
     public async Task GetServerVersionAsync_ReturnsServer_WhenFound()
     {
         var server = CreateTestServer();
-        _mockRepo.Setup(r => r.GetServerVersionAsync("com.test/server", "1.0.0"))
-            .ReturnsAsync(server);
+        _repo.GetServerVersionAsync("com.test/server", "1.0.0")
+            .Returns(server);
 
         var result = await _service.GetServerVersionAsync("com.test/server", "1.0.0");
 
@@ -155,21 +149,19 @@ public class ServerRegistryServiceTests
     [Fact]
     public async Task GetServerVersionAsync_ReturnsNull_WhenNotFound()
     {
-        _mockRepo.Setup(r => r.GetServerVersionAsync("com.test/server", "9.9.9"))
-            .ReturnsAsync((ServerDetail?)null);
+        _repo.GetServerVersionAsync("com.test/server", "9.9.9")
+            .Returns((ServerDetail?)null);
 
         var result = await _service.GetServerVersionAsync("com.test/server", "9.9.9");
 
         result.Should().BeNull();
     }
 
-    // --- DeleteServerVersionAsync ---
-
     [Fact]
     public async Task DeleteServerVersionAsync_ReturnsTrue_WhenDeleted()
     {
-        _mockRepo.Setup(r => r.DeleteServerVersionAsync("com.test/server", "1.0.0"))
-            .ReturnsAsync(true);
+        _repo.DeleteServerVersionAsync("com.test/server", "1.0.0")
+            .Returns(true);
 
         var result = await _service.DeleteServerVersionAsync("com.test/server", "1.0.0");
 
@@ -179,15 +171,13 @@ public class ServerRegistryServiceTests
     [Fact]
     public async Task DeleteServerVersionAsync_ReturnsFalse_WhenNotFound()
     {
-        _mockRepo.Setup(r => r.DeleteServerVersionAsync("com.test/server", "9.9.9"))
-            .ReturnsAsync(false);
+        _repo.DeleteServerVersionAsync("com.test/server", "9.9.9")
+            .Returns(false);
 
         var result = await _service.DeleteServerVersionAsync("com.test/server", "9.9.9");
 
         result.Should().BeFalse();
     }
-
-    // --- AddServerAsync ---
 
     [Fact]
     public async Task AddServerAsync_DelegatesToRepository()
@@ -196,6 +186,6 @@ public class ServerRegistryServiceTests
 
         await _service.AddServerAsync(server);
 
-        _mockRepo.Verify(r => r.AddServerAsync(server), Times.Once);
+        await _repo.Received(1).AddServerAsync(server);
     }
 }
