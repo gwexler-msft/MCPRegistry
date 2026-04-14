@@ -23,7 +23,7 @@
 MCP Registry is a self-hosted implementation of the [Model Context Protocol (MCP) Server Registry API](https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-mcp-usage/configure-mcp-registry#option-1-self-hosting-an-mcp-registry).
 
 - **Runtime:** ASP.NET Core 10 (.NET 10)
-- **Database:** SQL Server (LocalDB for dev, Azure SQL Serverless for production)
+- **Database:** SQL Server (Docker container for dev, Azure SQL Serverless for production)
 - **Hosting:** Azure Container Apps (containerized)
 - **Infrastructure as Code:** Bicep via Azure Developer CLI (azd)
 - **Authentication:** Microsoft Entra ID (no SQL passwords — managed identity only)
@@ -37,7 +37,7 @@ Install the following before starting:
 | Tool | Version | Install |
 |------|---------|---------|
 | **.NET SDK** | 10.0+ | https://dotnet.microsoft.com/download/dotnet/10.0 |
-| **SQL Server LocalDB** | Included with Visual Studio, or install separately | https://learn.microsoft.com/sql/database-engine/configure-windows/sql-server-express-localdb |
+| **Docker** | Latest | https://docs.docker.com/get-docker/ |
 | **Azure CLI** | Latest | `winget install Microsoft.AzureCLI` |
 | **Azure Developer CLI (azd)** | Latest | `winget install Microsoft.Azd` |
 | **sqlpackage** | Latest | `dotnet tool install -g microsoft.sqlpackage` |
@@ -47,7 +47,7 @@ Install the following before starting:
 
 ```powershell
 dotnet --version          # Should show 10.x
-sqllocaldb info           # Should list MSSQLLocalDB
+docker --version          # Docker version
 az --version              # Azure CLI version
 azd version               # Azure Developer CLI version
 sqlpackage /version       # Should show sqlpackage version
@@ -117,64 +117,33 @@ git clone <repo-url>
 cd MCPRegistry
 ```
 
-### 2. Start LocalDB
+### 2. Start SQL Server via Docker
 
 ```powershell
-sqllocaldb start MSSQLLocalDB
+docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=YourStrong!Passw0rd" -p 1433:1433 --name mcpregistry-sql -d mcr.microsoft.com/mssql/server:2022-latest
 ```
 
-### 3. Create the local database
+### 3. Deploy the schema via dacpac
+
+Build the SQL Database Project (Windows only) and publish it to the local Docker SQL Server:
 
 ```powershell
-sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "IF DB_ID('MCPRegistry') IS NULL CREATE DATABASE MCPRegistry;"
+dotnet build src/MCPRegistryDatabase/MCPRegistryDatabase.sqlproj -c Release
+
+sqlpackage /Action:Publish `
+  /SourceFile:"src/MCPRegistryDatabase/bin/Release/MCPRegistryDatabase.dacpac" `
+  /TargetServerName:"localhost,1433" `
+  /TargetDatabaseName:"MCPRegistry" `
+  /TargetUser:"sa" `
+  /TargetPassword:"YourStrong!Passw0rd" `
+  /TargetTrustServerCertificate:True
 ```
 
-### 4. Deploy the schema
-
-Run the table creation script:
-
-```powershell
-sqlcmd -S "(localdb)\MSSQLLocalDB" -d MCPRegistry -Q "
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Servers')
-BEGIN
-    CREATE TABLE Servers (
-        ServerName NVARCHAR(255) NOT NULL,
-        [Version] NVARCHAR(255) NOT NULL,
-        [Status] NVARCHAR(50) NOT NULL DEFAULT 'active',
-        AddedAt DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET(),
-        UpdatedAt DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET(),
-        IsLatest BIT NOT NULL DEFAULT 1,
-        [Value] NVARCHAR(MAX) NULL,
-        CONSTRAINT PK_Servers PRIMARY KEY (ServerName, [Version]),
-        CONSTRAINT CHK_Servers_Status CHECK ([Status] IN ('active', 'deprecated', 'deleted')),
-        CONSTRAINT CHK_Servers_ServerNameFormat CHECK (ServerName LIKE '[a-zA-Z0-9]%/[a-zA-Z0-9]%'),
-        CONSTRAINT CHK_Servers_VersionNotEmpty CHECK (LEN(LTRIM(RTRIM([Version]))) > 0)
-    );
-END"
-```
-
-Create indexes:
-
-```powershell
-sqlcmd -S "(localdb)\MSSQLLocalDB" -d MCPRegistry -Q "
-SET QUOTED_IDENTIFIER ON;
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Servers_ServerName') CREATE INDEX IDX_Servers_ServerName ON Servers(ServerName);
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Servers_ServerNameVersion') CREATE INDEX IDX_Servers_ServerNameVersion ON Servers(ServerName, [Version]);
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Servers_ServerNameLatest') CREATE INDEX IDX_Servers_ServerNameLatest ON Servers(ServerName, IsLatest) WHERE IsLatest = 1;
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Servers_Status') CREATE INDEX IDX_Servers_Status ON Servers([Status]);"
-```
-
-Create the update trigger:
-
-```powershell
-sqlcmd -S "(localdb)\MSSQLLocalDB" -d MCPRegistry -i "src\MCPRegistryDatabase\Triggers\dbo.TRG_Servers_UpdateUpdatedAt.sql"
-```
-
-### 5. Seed sample data
+### 4. Seed sample data
 
 ```powershell
 $json = Get-Content "data\sample-seed-data.json" -Raw | ConvertFrom-Json
-$connStr = "Server=(localdb)\MSSQLLocalDB;Database=MCPRegistry;Trusted_Connection=True;TrustServerCertificate=True;"
+$connStr = "Server=localhost,1433;Database=MCPRegistry;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;"
 $conn = New-Object System.Data.SqlClient.SqlConnection($connStr)
 $conn.Open()
 foreach ($item in $json) {
@@ -189,14 +158,14 @@ foreach ($item in $json) {
 $conn.Close()
 ```
 
-### 6. Verify the connection string
+### 5. Verify the connection string
 
-The local connection string is configured in `src/MCPRegistry/appsettings.Development.json`:
+Update the local connection string in `src/MCPRegistry/appsettings.Development.json` to point to the Docker SQL Server:
 
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Server=(localdb)\\MSSQLLocalDB;Database=MCPRegistry;Trusted_Connection=True;TrustServerCertificate=True;"
+    "DefaultConnection": "Server=localhost,1433;Database=MCPRegistry;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;"
   }
 }
 ```
@@ -206,12 +175,6 @@ The local connection string is configured in `src/MCPRegistry/appsettings.Develo
 ---
 
 ## Building & Running Locally
-
-### Build the solution
-
-```powershell
-dotnet build
-```
 
 ### Run the API
 
@@ -226,9 +189,9 @@ The API will be available at:
 
 ### Test with REST Client
 
-Open `src/MCPRegistry/MCPRegistry.http` in VS Code with the REST Client extension to execute test requests.
+Open `src/MCPRegistry/MCPRegistry.http` in Visual Studio or VS Code (with the REST Client extension) to execute test requests.
 
-### Test with curl/PowerShell
+### Test with PowerShell
 
 ```powershell
 # List all servers

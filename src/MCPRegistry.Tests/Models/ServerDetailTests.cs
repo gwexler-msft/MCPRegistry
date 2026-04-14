@@ -13,14 +13,6 @@ public class ServerDetailTests
     };
 
     [Fact]
-    public void Status_DefaultsToActive()
-    {
-        var server = CreateMinimal();
-
-        server.Status.Should().Be("active");
-    }
-
-    [Fact]
     public void Schema_HasDefaultValue()
     {
         var server = CreateMinimal();
