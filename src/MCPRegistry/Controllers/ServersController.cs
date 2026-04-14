@@ -186,7 +186,7 @@ public class ServersController : ControllerBase
 
             var serverVersion = await _registryService.GetServerVersionAsync(decodedServerName, decodedVersion);
 
-            if (serverVersion == null)
+            if (serverVersion is null)
             {
                 return NotFound("Server not found");
             }
@@ -214,7 +214,7 @@ public class ServersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting server version {ServerName}@{Version}", serverName, version);
-            return Problem($"Error getting server version {serverName}@{version}", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
+            return Problem("Internal server error", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
         }
     }
 
