@@ -1,0 +1,21 @@
+# Code Owners
+# Each line defines who is responsible for reviewing changes to matching paths.
+# The last matching pattern takes precedence.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything
+* @dstamand-msft
+
+# API and core application
+/src/MCPRegistry/ @dstamand-msft
+/src/MCPRegistryDatabase/ @dstamand-msft
+
+# Management UI
+/src/MCPRegistry.UI/ @dstamand-msft
+
+# Infrastructure and deployment
+/azd/ @dstamand-msft
+
+# Tests
+/src/MCPRegistry.Tests/ @dstamand-msft
+/src/MCPRegistry.UI.Tests/ @dstamand-msft
