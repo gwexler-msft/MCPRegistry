@@ -18,6 +18,9 @@ param apiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-hell
 @description('Container image for the UI app')
 param uiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
+@description('ASP.NET Core environment (Development, Production)')
+param aspnetEnvironment string = 'Production'
+
 module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.15.0' = {
   name: 'logAnalytics'
   params: {
@@ -148,7 +151,7 @@ module containerApp 'br/public:avm/res/app/container-app:0.22.0' = {
         env: [
           {
             name: 'ASPNETCORE_ENVIRONMENT'
-            value: 'Production'
+            value: aspnetEnvironment
           }
           {
             name: 'ConnectionStrings__DefaultConnection'
@@ -213,7 +216,7 @@ module containerAppUi 'br/public:avm/res/app/container-app:0.22.0' = {
         env: [
           {
             name: 'ASPNETCORE_ENVIRONMENT'
-            value: 'Production'
+            value: aspnetEnvironment
           }
           {
             name: 'ApiBaseUrl'

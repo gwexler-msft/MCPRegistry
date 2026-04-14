@@ -12,6 +12,8 @@ services:
     host: containerapp
     docker:
       path: ../src/MCPRegistry/Dockerfile
+      buildArgs:
+        - BUILD_CONFIGURATION=Debug
   ui:
     project: ../src/MCPRegistry.UI
     language: dotnet
@@ -19,6 +21,8 @@ services:
     docker:
       path: ../src/MCPRegistry.UI/Dockerfile
       context: ../src/MCPRegistry.UI
+      buildArgs:
+        - BUILD_CONFIGURATION=Debug
 
 hooks:
   prepackage:

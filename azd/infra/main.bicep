@@ -45,6 +45,9 @@ param apiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-hell
 @description('Container image for the UI app (default: placeholder for initial provision)')
 param uiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
+@description('ASP.NET Core environment (Development, Production)')
+param aspnetEnvironment string = 'Production'
+
 var suffix = generateSuffix(subscription().subscriptionId, environmentName, location)
 var tags = union({ 'azd-env-name': environmentName }, customTags)
 
@@ -76,6 +79,7 @@ module resources './modules/resources.bicep' = {
     names: resolvedNames
     apiContainerImage: apiContainerImage
     uiContainerImage: uiContainerImage
+    aspnetEnvironment: aspnetEnvironment
   }
 }
 

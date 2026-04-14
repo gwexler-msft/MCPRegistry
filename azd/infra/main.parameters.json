@@ -14,6 +14,7 @@
     "containerAppsEnvironmentName": { "value": "${AZURE_CONTAINER_APPS_ENV_NAME=}" },
     "sqlServerName": { "value": "${AZURE_SQL_SERVER_NAME=}" },
     "sqlDatabaseName": { "value": "${AZURE_SQL_DATABASE_NAME=MCPRegistry}" },
-    "containerAppName": { "value": "${AZURE_CONTAINER_APP_NAME=}" }
+    "containerAppName": { "value": "${AZURE_CONTAINER_APP_NAME=}" },
+    "aspnetEnvironment": { "value": "${aspnetEnvironment=Production}" }
   }
 }
