@@ -120,7 +120,7 @@ public class McpRegistryClientTests
 
         await client.GetServerVersionsAsync("com.test/server");
 
-        captured!.RequestUri!.AbsolutePath.Should().Contain("com.test%2Fserver");
+        captured!.RequestUri!.AbsolutePath.Should().Contain("com.test/server");
     }
 
     // --- AddServersAsync ---
@@ -206,7 +206,7 @@ public class McpRegistryClientTests
         await client.DeleteServerVersionAsync("com.test/server", "1.0.0");
 
         captured!.Method.Should().Be(HttpMethod.Delete);
-        captured.RequestUri!.AbsolutePath.Should().Contain("com.test%2Fserver");
+        captured.RequestUri!.AbsolutePath.Should().Contain("com.test/server");
         captured.RequestUri.AbsolutePath.Should().Contain("1.0.0");
     }
 }

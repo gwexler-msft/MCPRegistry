@@ -41,6 +41,7 @@ else
                 <th>Name</th>
                 <th>Title</th>
                 <th>Version</th>
+                <th>Status</th>
                 <th>Description</th>
                 <th>Actions</th>
             </tr>
@@ -48,14 +49,27 @@ else
         <tbody>
             @foreach (var item in servers)
             {
-                <tr>
+                <tr class="@(item.IsDeleted ? "text-muted" : "")">
                     <td><code>@item.Server.Name</code></td>
                     <td>@(item.Server.Title ?? "—")</td>
                     <td><span class="badge bg-primary">@item.Server.Version</span></td>
+                    <td>
+                        @if (item.IsDeleted)
+                        {
+                            <span class="badge bg-secondary">deleted</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-success">active</span>
+                        }
+                    </td>
                     <td>@TruncateText(item.Server.Description, 80)</td>
                     <td>
-                        <a href="/servers/@Uri.EscapeDataString(item.Server.Name)" class="btn btn-sm btn-outline-primary">Versions</a>
-                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(item.Server.Name, item.Server.Version)">Delete</button>
+                        <a href="/servers/@item.Server.Name" class="btn btn-sm btn-outline-primary">Versions</a>
+                        @if (!item.IsDeleted)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(item.Server.Name, item.Server.Version)">Delete</button>
+                        }
                     </td>
                 </tr>
             }

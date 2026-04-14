@@ -138,7 +138,7 @@ public class ServersControllerTests
         _mockService.Setup(s => s.GetServerVersionsAsync("com.test/unknown"))
             .ReturnsAsync(new List<ServerDetail>());
 
-        var result = await _controller.ListServerVersions("com.test%2Funknown");
+        var result = await _controller.ListServerVersions("com.test", "unknown");
 
         result.Result.Should().BeOfType<NotFoundObjectResult>();
     }
@@ -154,7 +154,7 @@ public class ServersControllerTests
         _mockService.Setup(s => s.GetServerVersionsAsync("com.test/server"))
             .ReturnsAsync(versions);
 
-        var result = await _controller.ListServerVersions("com.test%2Fserver");
+        var result = await _controller.ListServerVersions("com.test", "server");
 
         var jsonResult = result.Result.Should().BeOfType<JsonResult>().Subject;
         var serverList = jsonResult.Value.Should().BeOfType<ServerList>().Subject;
@@ -168,7 +168,7 @@ public class ServersControllerTests
         _mockService.Setup(s => s.GetServerVersionsAsync("com.test/server"))
             .ReturnsAsync(new List<ServerDetail> { CreateTestServer() });
 
-        await _controller.ListServerVersions("com.test%2Fserver");
+        await _controller.ListServerVersions("com.test", "server");
 
         _mockService.Verify(s => s.GetServerVersionsAsync("com.test/server"), Times.Once);
     }
@@ -181,7 +181,7 @@ public class ServersControllerTests
         _mockService.Setup(s => s.GetServerVersionAsync("com.test/server", "9.9.9"))
             .ReturnsAsync((ServerDetail?)null);
 
-        var result = await _controller.GetServerVersion("com.test%2Fserver", "9.9.9");
+        var result = await _controller.GetServerVersion("com.test", "server", "9.9.9");
 
         result.Result.Should().BeOfType<NotFoundObjectResult>();
     }
@@ -193,7 +193,7 @@ public class ServersControllerTests
         _mockService.Setup(s => s.GetServerVersionAsync("com.test/server", "1.0.0"))
             .ReturnsAsync(server);
 
-        var result = await _controller.GetServerVersion("com.test%2Fserver", "1.0.0");
+        var result = await _controller.GetServerVersion("com.test", "server", "1.0.0");
 
         var jsonResult = result.Result.Should().BeOfType<JsonResult>().Subject;
         var response = jsonResult.Value.Should().BeOfType<ServerResponse>().Subject;
@@ -207,7 +207,7 @@ public class ServersControllerTests
         _mockService.Setup(s => s.GetServerVersionAsync("com.test/server", "1.0.0"))
             .ReturnsAsync(server);
 
-        var result = await _controller.GetServerVersion("com.test%2Fserver", "1.0.0");
+        var result = await _controller.GetServerVersion("com.test", "server", "1.0.0");
 
         var jsonResult = result.Result.Should().BeOfType<JsonResult>().Subject;
         var response = jsonResult.Value.Should().BeOfType<ServerResponse>().Subject;
@@ -222,7 +222,7 @@ public class ServersControllerTests
         _mockService.Setup(s => s.GetServerVersionAsync("com.test/server", "1.0.0"))
             .ReturnsAsync((ServerDetail?)null);
 
-        var result = await _controller.DeleteServerVersion("com.test%2Fserver", "1.0.0");
+        var result = await _controller.DeleteServerVersion("com.test", "server", "1.0.0");
 
         result.Should().BeOfType<NotFoundObjectResult>();
     }
@@ -235,7 +235,7 @@ public class ServersControllerTests
         _mockService.Setup(s => s.DeleteServerVersionAsync("com.test/server", "1.0.0"))
             .ReturnsAsync(true);
 
-        var result = await _controller.DeleteServerVersion("com.test%2Fserver", "1.0.0");
+        var result = await _controller.DeleteServerVersion("com.test", "server", "1.0.0");
 
         result.Should().BeOfType<OkResult>();
     }
@@ -248,7 +248,7 @@ public class ServersControllerTests
         _mockService.Setup(s => s.DeleteServerVersionAsync("com.test/server", "1.0.0"))
             .ReturnsAsync(false);
 
-        var result = await _controller.DeleteServerVersion("com.test%2Fserver", "1.0.0");
+        var result = await _controller.DeleteServerVersion("com.test", "server", "1.0.0");
 
         var problemResult = result.Should().BeOfType<ObjectResult>().Subject;
         problemResult.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);

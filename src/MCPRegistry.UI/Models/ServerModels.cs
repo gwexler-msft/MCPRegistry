@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace MCPRegistry.UI.Models;
@@ -18,6 +19,22 @@ public class ServerResponseItem
 
     [JsonPropertyName("_meta")]
     public Dictionary<string, object>? Meta { get; set; }
+
+    public string Status
+    {
+        get
+        {
+            if (Meta?.TryGetValue("io.modelcontextprotocol.registry/official", out var officialObj) == true
+                && officialObj is JsonElement element
+                && element.TryGetProperty("status", out var statusProp))
+            {
+                return statusProp.GetString() ?? "active";
+            }
+            return "active";
+        }
+    }
+
+    public bool IsDeleted => string.Equals(Status, "deleted", StringComparison.OrdinalIgnoreCase);
 }
 
 public class ServerListMetadata

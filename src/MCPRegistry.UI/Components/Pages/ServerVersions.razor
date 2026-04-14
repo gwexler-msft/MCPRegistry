@@ -1,12 +1,12 @@
-@page "/servers/{ServerName}"
+@page "/servers/{*ServerName}"
 @using MCPRegistry.UI.Services
 @using MCPRegistry.UI.Models
 @inject McpRegistryClient Api
 @rendermode InteractiveServer
 
-<PageTitle>@(Uri.UnescapeDataString(ServerName)) — Versions</PageTitle>
+<PageTitle>@ServerName — Versions</PageTitle>
 
-<h1>Versions: <code>@Uri.UnescapeDataString(ServerName)</code></h1>
+<h1>Versions: <code>@ServerName</code></h1>
 
 <a href="/" class="btn btn-outline-secondary btn-sm mb-3">← Back to all servers</a>
 
@@ -29,6 +29,7 @@ else
             <tr>
                 <th>Version</th>
                 <th>Title</th>
+                <th>Status</th>
                 <th>Description</th>
                 <th>Actions</th>
             </tr>
@@ -36,12 +37,25 @@ else
         <tbody>
             @foreach (var item in versions)
             {
-                <tr>
+                <tr class="@(item.IsDeleted ? "text-muted" : "")">
                     <td><span class="badge bg-primary">@item.Server.Version</span></td>
                     <td>@(item.Server.Title ?? "—")</td>
+                    <td>
+                        @if (item.IsDeleted)
+                        {
+                            <span class="badge bg-secondary">deleted</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-success">active</span>
+                        }
+                    </td>
                     <td>@(item.Server.Description ?? "—")</td>
                     <td>
-                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(item.Server.Version)">Delete</button>
+                        @if (!item.IsDeleted)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(item.Server.Version)">Delete</button>
+                        }
                     </td>
                 </tr>
             }
@@ -58,7 +72,7 @@ else
                     <h5 class="modal-title">Confirm Delete</h5>
                 </div>
                 <div class="modal-body">
-                    <p>Delete version <strong>@deleteVersion</strong> of <strong>@Uri.UnescapeDataString(ServerName)</strong>?</p>
+                    <p>Delete version <strong>@deleteVersion</strong> of <strong>@ServerName</strong>?</p>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" @onclick="CancelDelete">Cancel</button>
@@ -90,8 +104,7 @@ else
         errorMessage = null;
         try
         {
-            var decoded = Uri.UnescapeDataString(ServerName);
-            var result = await Api.GetServerVersionsAsync(decoded);
+            var result = await Api.GetServerVersionsAsync(ServerName);
             versions = result.Servers;
         }
         catch (Exception ex)
@@ -112,8 +125,7 @@ else
     private async Task ExecuteDelete()
     {
         showDeleteConfirm = false;
-        var decoded = Uri.UnescapeDataString(ServerName);
-        await Api.DeleteServerVersionAsync(decoded, deleteVersion);
+        await Api.DeleteServerVersionAsync(ServerName, deleteVersion);
         await LoadVersions();
     }
 }
