@@ -9,7 +9,8 @@ public class ServerDetailTests
     {
         Name = "com.test/server",
         Version = "1.0.0",
-        Description = "Test"
+        Description = "Test",
+        Status = "active"
     };
 
     [Fact]

@@ -1,10 +1,13 @@
 #!/usr/bin/env pwsh
 # Deploy the database schema using the dacpac produced by the SQL project.
 # Runs as a postprovision hook or standalone.
+# SQL target platform (DSP) reference:
+# https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/concepts/target-platform?view=sql-server-ver17&pivots=sq1-command-line
 
 param(
     [string]$ServerName,
-    [string]$DatabaseName
+    [string]$DatabaseName,
+    [string]$TargetPlatform
 )
 
 Write-Host "Deploying database schema via dacpac..."
@@ -14,7 +17,12 @@ if (-not $ServerName -or -not $DatabaseName) {
     $envValues = azd env get-values --output json | ConvertFrom-Json
     if (-not $ServerName) { $ServerName = $envValues.AZURE_SQL_SERVER_NAME }
     if (-not $DatabaseName) { $DatabaseName = $envValues.AZURE_SQL_DATABASE_NAME }
+    if (-not $TargetPlatform) { $TargetPlatform = $envValues.SQL_TARGET_PLATFORM }
     $resourceGroup = $envValues.AZURE_RESOURCE_GROUP
+}
+
+if (-not $TargetPlatform) {
+    $TargetPlatform = $env:SQL_TARGET_PLATFORM
 }
 
 if (-not $ServerName -or -not $DatabaseName) {
@@ -30,9 +38,29 @@ $sqlFqdn = if ($ServerName -like '*.database.windows.net') { $ServerName } else 
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot (Join-Path ".." ".."))).Path
 $dacpacPath = Join-Path $repoRoot "src\MCPRegistryDatabase\bin\Release\MCPRegistryDatabase.dacpac"
-if (-not (Test-Path $dacpacPath)) {
-    Write-Host "Dacpac not found, building..."
-    dotnet build (Join-Path $repoRoot "src\MCPRegistryDatabase\MCPRegistryDatabase.sqlproj") -c Release
+if ($TargetPlatform) {
+    Write-Host "Using SQL target platform (DSP): $TargetPlatform"
+}
+
+$shouldBuildDacpac = (-not (Test-Path $dacpacPath)) -or [bool]$TargetPlatform
+if ($shouldBuildDacpac) {
+    if (Test-Path $dacpacPath) {
+        Write-Host "Target platform override provided, rebuilding dacpac..."
+    }
+    else {
+        Write-Host "Dacpac not found, building..."
+    }
+
+    $buildArgs = @(
+        (Join-Path $repoRoot "src\MCPRegistryDatabase\MCPRegistryDatabase.sqlproj"),
+        "-c",
+        "Release"
+    )
+    if ($TargetPlatform) {
+        $buildArgs += "/p:DSP=$TargetPlatform"
+    }
+
+    dotnet build @buildArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to build SQL project."
         exit 1

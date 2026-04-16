@@ -12,26 +12,21 @@ services:
     host: containerapp
     docker:
       path: ../src/MCPRegistry/Dockerfile
-      buildArgs:
-        - BUILD_CONFIGURATION=Debug
+      # comment this out if you want to have a debug image instead of a release config
+      # buildArgs:
+      #   - BUILD_CONFIGURATION=Debug
   ui:
     project: ../src/MCPRegistry.UI
     language: dotnet
     host: containerapp
     docker:
       path: ../src/MCPRegistry.UI/Dockerfile
-      context: ../src/MCPRegistry.UI
-      buildArgs:
-        - BUILD_CONFIGURATION=Debug
+      context: ../
+      # comment this out if you want to have a debug image instead of a release config
+      # buildArgs:
+      #   - BUILD_CONFIGURATION=Debug
 
 hooks:
-  prepackage:
-    posix:
-      shell: sh
-      run: cp ../data/sample-seed-data.json ../src/MCPRegistry.UI/wwwroot/sample-seed-data.json 2>/dev/null || true
-    windows:
-      shell: pwsh
-      run: Copy-Item ../data/sample-seed-data.json ../src/MCPRegistry.UI/wwwroot/sample-seed-data.json -ErrorAction SilentlyContinue
   postprovision:
     posix:
       shell: sh

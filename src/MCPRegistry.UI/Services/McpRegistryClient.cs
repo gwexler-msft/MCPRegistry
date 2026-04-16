@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 using MCPRegistry.UI.Models;
 
 namespace MCPRegistry.UI.Services;

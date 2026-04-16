@@ -4,9 +4,9 @@ WORKDIR /app
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["MCPRegistry.UI.csproj", "./"]
+COPY ["./src/MCPRegistry.UI/MCPRegistry.UI.csproj", "./"]
 RUN dotnet restore
-COPY . .
+COPY ./src/MCPRegistry.UI/ .
 RUN dotnet publish -c $BUILD_CONFIGURATION -o /app/publish
 
 FROM base AS final

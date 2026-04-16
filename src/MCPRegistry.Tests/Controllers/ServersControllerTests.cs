@@ -134,7 +134,7 @@ public class ServersControllerTests
         _service.GetServerVersionsAsync("com.test/unknown")
             .Returns(new List<ServerDetail>());
 
-        var result = await _controller.ListServerVersions("com.test", "unknown");
+        var result = await _controller.ListServerVersions("com.test/unknown");
 
         result.Result.Should().BeOfType<NotFoundObjectResult>();
     }
@@ -150,7 +150,7 @@ public class ServersControllerTests
         _service.GetServerVersionsAsync("com.test/server")
             .Returns(versions);
 
-        var result = await _controller.ListServerVersions("com.test", "server");
+        var result = await _controller.ListServerVersions("com.test/server");
 
         var jsonResult = result.Result.Should().BeOfType<JsonResult>().Subject;
         var serverList = jsonResult.Value.Should().BeOfType<ServerList>().Subject;
@@ -164,7 +164,7 @@ public class ServersControllerTests
         _service.GetServerVersionsAsync("com.test/server")
             .Returns(new List<ServerDetail> { CreateTestServer() });
 
-        await _controller.ListServerVersions("com.test", "server");
+        await _controller.ListServerVersions("com.test/server");
 
         await _service.Received(1).GetServerVersionsAsync("com.test/server");
     }
@@ -175,7 +175,7 @@ public class ServersControllerTests
         _service.GetServerVersionAsync("com.test/server", "9.9.9")
             .Returns((ServerDetail?)null);
 
-        var result = await _controller.GetServerVersion("com.test", "server", "9.9.9");
+        var result = await _controller.GetServerVersion("com.test/server", "9.9.9");
 
         result.Result.Should().BeOfType<NotFoundObjectResult>();
     }
@@ -187,7 +187,7 @@ public class ServersControllerTests
         _service.GetServerVersionAsync("com.test/server", "1.0.0")
             .Returns(server);
 
-        var result = await _controller.GetServerVersion("com.test", "server", "1.0.0");
+        var result = await _controller.GetServerVersion("com.test/server", "1.0.0");
 
         var jsonResult = result.Result.Should().BeOfType<JsonResult>().Subject;
         var response = jsonResult.Value.Should().BeOfType<ServerResponse>().Subject;
@@ -201,7 +201,7 @@ public class ServersControllerTests
         _service.GetServerVersionAsync("com.test/server", "1.0.0")
             .Returns(server);
 
-        var result = await _controller.GetServerVersion("com.test", "server", "1.0.0");
+        var result = await _controller.GetServerVersion("com.test/server", "1.0.0");
 
         var jsonResult = result.Result.Should().BeOfType<JsonResult>().Subject;
         var response = jsonResult.Value.Should().BeOfType<ServerResponse>().Subject;
@@ -214,7 +214,7 @@ public class ServersControllerTests
         _service.GetServerVersionAsync("com.test/server", "1.0.0")
             .Returns((ServerDetail?)null);
 
-        var result = await _controller.DeleteServerVersion("com.test", "server", "1.0.0");
+        var result = await _controller.DeleteServerVersion("com.test/server", "1.0.0");
 
         result.Should().BeOfType<NotFoundObjectResult>();
     }
@@ -227,7 +227,7 @@ public class ServersControllerTests
         _service.DeleteServerVersionAsync("com.test/server", "1.0.0")
             .Returns(true);
 
-        var result = await _controller.DeleteServerVersion("com.test", "server", "1.0.0");
+        var result = await _controller.DeleteServerVersion("com.test/server", "1.0.0");
 
         result.Should().BeOfType<OkResult>();
     }
@@ -240,7 +240,7 @@ public class ServersControllerTests
         _service.DeleteServerVersionAsync("com.test/server", "1.0.0")
             .Returns(false);
 
-        var result = await _controller.DeleteServerVersion("com.test", "server", "1.0.0");
+        var result = await _controller.DeleteServerVersion("com.test/server", "1.0.0");
 
         var problemResult = result.Should().BeOfType<ObjectResult>().Subject;
         problemResult.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);

@@ -103,14 +103,14 @@ The API comes with the following sample servers for testing (see `data/sample-se
 
 2. **Azure DevOps MCP Server** (`com.microsoft/azure-devops-mcp`)
    - Title: Azure DevOps MCP Server
-   - Description: Azure DevOps�work items, repositories, pipelines, test plans, wiki, search, and more.
+   - Description: Azure DevOps-work items, repositories, pipelines, test plans, wiki, search, and more.
    - Version: 2.2.2
    - Website: https://github.com/microsoft/azure-devops-mcp
    - Packages: npm (@azure-devops/mcp)
 
 3. **Microsoft Learn MCP** (`com.microsoft/microsoft-learn-mcp`)
    - Title: Microsoft Learn MCP
-   - Description: Official Microsoft Learn MCP Server � real-time, trusted docs & code samples for AI and LLMs.
+   - Description: Official Microsoft Learn MCP Server - real-time, trusted docs & code samples for AI and LLMs.
    - Version: 1.0.0
    - Website: https://github.com/MicrosoftDocs/mcp
    - Remotes: https://learn.microsoft.com/api/mcp
@@ -214,9 +214,9 @@ As recommended by the [MCP Registry Aggregators documentation](https://github.co
 
 ### Status values
 
-- **`active`** � The server version is available and functioning normally.
-- **`deprecated`** � The server version is no longer recommended for use.
-- **`deleted`** � The server has violated the MCP.IO registry permissive moderation policy (e.g., spam, malware, or illegal content). You may prefer to remove these servers from their your index registry entirely.
+- **`active`** : The server version is available and functioning normally.
+- **`deprecated`** : The server version is no longer recommended for use.
+- **`deleted`** : The server has violated the MCP.IO registry permissive moderation policy (e.g., spam, malware, or illegal content). You may prefer to remove these servers from their your index registry entirely.
 
 ## Notes
 

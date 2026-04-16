@@ -6,7 +6,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-var apiBaseUrl = builder.Configuration["ApiBaseUrl"] ?? "http://localhost:5103";
+var apiBaseUrl = builder.Configuration["ApiBaseUrl"]
+    ?? throw new InvalidOperationException("Configuration value 'ApiBaseUrl' is required but was not found.");
+
 builder.Services.AddHttpClient<McpRegistryClient>(client =>
 {
     client.BaseAddress = new Uri(apiBaseUrl.TrimEnd('/') + "/");
