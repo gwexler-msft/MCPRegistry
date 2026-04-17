@@ -35,6 +35,11 @@ if [ -n "${TARGET_PLATFORM:-}" ]; then
     echo "Using SQL target platform (DSP): $TARGET_PLATFORM"
 fi
 
+if [ -z "${TARGET_PLATFORM:-}" ]; then
+    TARGET_PLATFORM="Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider"
+    echo "Defaulting SQL target platform (DSP): $TARGET_PLATFORM"
+fi
+
 if [ ! -f "$DACPAC_PATH" ] || [ -n "${TARGET_PLATFORM:-}" ]; then
     if [ -f "$DACPAC_PATH" ] && [ -n "${TARGET_PLATFORM:-}" ]; then
         echo "Target platform override provided, rebuilding dacpac..."

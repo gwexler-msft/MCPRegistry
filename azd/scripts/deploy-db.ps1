@@ -25,6 +25,10 @@ if (-not $TargetPlatform) {
     $TargetPlatform = $env:SQL_TARGET_PLATFORM
 }
 
+if (-not $TargetPlatform) {
+    $TargetPlatform = "Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider"
+}
+
 if (-not $ServerName -or -not $DatabaseName) {
     Write-Error "Missing SQL server or database name. Provide via parameters or azd env."
     exit 1

@@ -81,10 +81,6 @@ MCPRegistry/
 ├── data/
 │   ├── sample-seed-data.json         # Sample MCP servers for seeding
 │   └── new-version-data.json         # Example payload for adding new versions
-├── scripts/
-│   └── DeploySchema/                 # Standalone .NET tool for schema deployment (non-azd)
-│       ├── DeploySchema.csproj
-│       └── Program.cs
 ├── src/
 │   ├── MCPRegistry/                  # ASP.NET Core Web API
 │   │   ├── MCPRegistry.csproj
@@ -125,7 +121,7 @@ docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=YourStrong!Passw0rd" -p 1433
 
 ### 3. Deploy the schema via dacpac
 
-Build the SQL Database Project (Windows only) and publish it to the local Docker SQL Server:
+Build the SQL Database Project and publish it to the local Docker SQL Server:
 
 ```powershell
 dotnet build src/MCPRegistryDatabase/MCPRegistryDatabase.sqlproj -c Release
@@ -383,8 +379,8 @@ az sql server conn-policy update `
   --connection-type Proxy
 
 # Build the dacpac and deploy (run from repo root)
-# Note: The SQL Database Project (.sqlproj) can only be built on Windows
-dotnet build src/MCPRegistryDatabase/MCPRegistryDatabase.sqlproj -c Release
+# Override DSP to target Azure SQL Database (the project defaults to SQL Server 2022)
+dotnet build src/MCPRegistryDatabase/MCPRegistryDatabase.sqlproj -c Release /p:DSP="Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider"
 
 $token = az account get-access-token --resource "https://database.windows.net/" --query accessToken -o tsv
 
@@ -526,11 +522,11 @@ Remember to switch back to **Default** after your operation (Proxy has higher la
 
 If you see: *"A project which specifies SQL Server 2025 as the target platform cannot be published to Microsoft Azure SQL Database v12"*
 
-The SQL project's `DSP` must be set to Azure SQL Database:
-```xml
-<DSP>Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider</DSP>
+The SQL project's `DSP` defaults to `Sql170DatabaseSchemaProvider` (SQL Server 2022) for local development. When deploying to Azure SQL, override it at build time:
+```powershell
+dotnet build src/MCPRegistryDatabase/MCPRegistryDatabase.sqlproj -c Release /p:DSP="Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider"
 ```
-Not `Sql170DatabaseSchemaProvider` (which targets on-premises SQL Server 2022+).
+The `deploy-db.ps1` and `deploy-db.sh` scripts handle this automatically.
 
 ### Database auto-paused (serverless) — slow first connection
 
@@ -588,7 +584,7 @@ Or run the scripts manually:
 | **Serverless SQL** | Auto-pauses when idle — cost-effective for dev/POC workloads |
 | **Container Apps** | Scales to zero, no infrastructure management, built-in ingress/TLS |
 | **Dapper (not EF Core)** | Lightweight data access — the JSON is stored as-is in the `Value` column |
-| **SDK-style sqlproj** | Enables `dotnet build` and dacpac output without Visual Studio or SSDT |
+| **SDK-style sqlproj** | Enables `dotnet build` and dacpac output without Visual Studio or SSDT. The project targets SQL Server 2022 (`Sql170`) by default for local dev; deploy scripts override to `SqlAzureV12DatabaseSchemaProvider` for Azure SQL |
 | **Azure Verified Modules (AVM)** | Standardized, tested Bicep modules maintained by Microsoft — preferred over raw ARM resources |
 | **CAF naming conventions** | Default resource names follow Azure Cloud Adoption Framework; customers can override any name |
 | **azd/ folder isolation** | Azure deployment files are separate from application code; customers not using azd can use Bicep directly |
