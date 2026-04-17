@@ -10,5 +10,8 @@
     <Project Path="src/MCPRegistry.UI/MCPRegistry.UI.csproj" />
   </Folder>
   <Project Path="src/MCPRegistry/MCPRegistry.csproj" />
-  <Project Path="src/MCPRegistryDatabase/MCPRegistryDatabase.sqlproj" />
+  <Project Path="src/MCPRegistryDatabase/MCPRegistryDatabase.sqlproj" Id="030468cc-9b32-4170-b03d-be178f46c571">
+    <Build />
+    <Deploy />
+  </Project>
 </Solution>

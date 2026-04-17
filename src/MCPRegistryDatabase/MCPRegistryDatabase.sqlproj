@@ -1,10 +1,31 @@
 ﻿<Project DefaultTargets="Build">
   <Sdk Name="Microsoft.Build.Sql" Version="2.1.0" />
-
   <PropertyGroup>
     <Name>MCPRegistryDatabase</Name>
-    <DSP>Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider</DSP>
+    <DSP>Microsoft.Data.Tools.Schema.Sql.Sql170DatabaseSchemaProvider</DSP>
     <ModelCollation>1033, CI</ModelCollation>
     <IncludeSchemaNameInFileName>True</IncludeSchemaNameInFileName>
+    <TargetDatabaseSet>True</TargetDatabaseSet>
+    <ProjectGuid>{030468cc-9b32-4170-b03d-be178f46c571}</ProjectGuid>
+    <!-- Visual Studio 2026: if the folder include is not there, the files are not shown in the UI -->
+    <EnableDefaultSqlItems>False</EnableDefaultSqlItems>
   </PropertyGroup>
+  <ItemGroup>
+    <Folder Include="PostDeployment" />
+    <Folder Include="PreDeployment" />
+    <Folder Include="StoredProcedures" />
+    <Folder Include="Tables" />
+    <Folder Include="Triggers" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="PostDeployment\README.md" />
+    <None Include="PreDeployment\README.md" />
+    <None Include="StoredProcedures\README.md" />
+    <None Include="README.md" />
+  </ItemGroup>
+<!-- Visual Studio 2026: if the include is not there, the files are not shown in the UI -->
+  <ItemGroup>
+    <Build Include="Tables\*.sql" />
+    <Build Include="Triggers\*.sql" />
+  </ItemGroup>
 </Project>
