@@ -41,12 +41,33 @@ $firewallRuleName = "azd-grant-$($myIp.Replace('.', '-'))"
 az sql server firewall-rule create --resource-group $resourceGroup --server $sqlServer --name $firewallRuleName --start-ip-address $myIp --end-ip-address $myIp --output none 2>$null
 az sql server conn-policy update --server $sqlServer --resource-group $resourceGroup --connection-type Proxy --output none 2>$null
 
-# Use the DeploySchema tool to grant access (handles token auth via .NET SqlClient)
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot (Join-Path ".." ".."))).Path
-$env:SQL_SERVER = $sqlFqdn
-$env:SQL_DB = $sqlDatabase
-$env:SQL_IDENTITY = $managedIdentityDisplayName
-dotnet run --project (Join-Path $repoRoot "scripts\DeploySchema") 2>&1
+# Grant access using SqlClient with token auth
+$grantSql = @"
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = '$managedIdentityDisplayName')
+BEGIN
+    CREATE USER [$managedIdentityDisplayName] FROM EXTERNAL PROVIDER;
+END
+ALTER ROLE db_datareader ADD MEMBER [$managedIdentityDisplayName];
+ALTER ROLE db_datawriter ADD MEMBER [$managedIdentityDisplayName];
+"@
+
+$connStr = "Server=tcp:${sqlFqdn},1433;Database=${sqlDatabase};Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;"
+$conn = New-Object System.Data.SqlClient.SqlConnection($connStr)
+$conn.AccessToken = $token
+try {
+    $conn.Open()
+    $cmd = $conn.CreateCommand()
+    $cmd.CommandText = $grantSql
+    $cmd.ExecuteNonQuery() | Out-Null
+    Write-Host "Granted db_datareader + db_datawriter to $managedIdentityDisplayName"
+}
+catch {
+    Write-Error "Failed to grant SQL access: $_"
+    exit 1
+}
+finally {
+    $conn.Close()
+}
 
 # Restore and clean up
 az sql server conn-policy update --server $sqlServer --resource-group $resourceGroup --connection-type Default --output none 2>$null
