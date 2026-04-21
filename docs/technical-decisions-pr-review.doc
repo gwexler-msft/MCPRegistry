@@ -1,0 +1,261 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<meta name="ProgId" content="Word.Document">
+<!--[if gte mso 9]>
+<xml>
+<w:WordDocument>
+<w:View>Print</w:View>
+<w:Zoom>100</w:Zoom>
+</w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+    body { font-family: Calibri, sans-serif; font-size: 11pt; margin: 1in; line-height: 1.4; color: #333; }
+    h1 { font-size: 20pt; color: #1a3c6e; border-bottom: 2px solid #1a3c6e; padding-bottom: 6pt; margin-top: 24pt; }
+    h2 { font-size: 15pt; color: #2b5797; margin-top: 20pt; }
+    h3 { font-size: 12pt; color: #444; margin-top: 14pt; }
+    p { margin: 6pt 0; }
+    code { font-family: Consolas, monospace; font-size: 10pt; background-color: #f4f4f4; padding: 1px 4px; border: 1px solid #ddd; }
+    pre { font-family: Consolas, monospace; font-size: 9.5pt; background-color: #f8f8f8; border: 1px solid #ddd; padding: 10px; margin: 8pt 0; white-space: pre-wrap; }
+    table { border-collapse: collapse; margin: 10pt 0; width: 100%; }
+    th { background-color: #2b5797; color: white; padding: 8px 12px; text-align: left; font-weight: bold; }
+    td { border: 1px solid #ccc; padding: 6px 12px; vertical-align: top; }
+    tr:nth-child(even) { background-color: #f2f6fc; }
+    .callout { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 10px 14px; margin: 10pt 0; }
+    .callout-error { background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 10px 14px; margin: 10pt 0; }
+    .callout-success { background-color: #d4edda; border-left: 4px solid #28a745; padding: 10px 14px; margin: 10pt 0; }
+    .subtitle { font-size: 13pt; color: #666; margin-top: -10pt; }
+    .footer { font-size: 9pt; color: #999; margin-top: 40pt; border-top: 1px solid #ccc; padding-top: 8pt; }
+</style>
+</head>
+<body>
+
+<h1>MCP Registry: Technical Decision Analysis</h1>
+<p class="subtitle">PR Review Findings &mdash; ASP.NET Core Constraints on Route Patterns and JSON Serialization</p>
+<p><strong>Date:</strong> April 21, 2026 &nbsp;&bull;&nbsp; <strong>Author:</strong> Gennady Wexler &nbsp;&bull;&nbsp; <strong>Repository:</strong> MCPRegistry</p>
+
+<hr>
+
+<h1>1. Executive Summary</h1>
+
+<p>During deployment testing of the PR review changes, two modifications introduced runtime failures that required reverting. Both issues stem from well-documented constraints in ASP.NET Core and System.Text.Json that are not immediately obvious from code review alone. This document provides the technical evidence for each decision, including reproduction steps, framework source references, and an analysis of alternative approaches.</p>
+
+<h1>2. Issue #1: <code>required</code> + <code>[JsonIgnore]</code> Incompatibility</h1>
+
+<h2>2.1 Background</h2>
+
+<p>The <code>ServerDetail</code> model class has a <code>Status</code> property marked with <code>[JsonIgnore]</code>. This attribute is intentional: the Status field is a database-only concern that is not included in the JSON payload sent to or received from API clients. Instead, Status is communicated through the <code>_meta</code> response envelope per the MCP registry specification.</p>
+
+<p>The PR changed the property from:</p>
+<pre>
+[JsonIgnore]
+public string Status { get; set; } = null!;
+</pre>
+<p>To:</p>
+<pre>
+[JsonIgnore]
+public required string Status { get; set; }
+</pre>
+
+<h2>2.2 The Problem</h2>
+
+<p>When the API attempts to deserialize incoming JSON (e.g., POST /v0.1/servers), System.Text.Json throws:</p>
+
+<div class="callout-error">
+<code>System.InvalidOperationException: JsonPropertyInfo 'Status' defined in type 'MCPRegistry.Models.ServerDetail' is marked required but does not specify a setter.</code>
+</div>
+
+<p>This error occurs because the C# <code>required</code> modifier has dual behavior:</p>
+
+<ol>
+    <li><strong>Compile-time:</strong> Forces callers to set the property in object initializers.</li>
+    <li><strong>Runtime:</strong> System.Text.Json inspects <code>required</code> members and enforces that they are present in the JSON payload during deserialization.</li>
+</ol>
+
+<p>When combined with <code>[JsonIgnore]</code>, STJ encounters a contradiction: the property is required for deserialization, but is also excluded from deserialization. STJ resolves this by throwing an exception.</p>
+
+<h2>2.3 Microsoft Documentation</h2>
+
+<p>This behavior is documented in the official .NET documentation:</p>
+
+<ul>
+    <li><a href="https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/required-properties">Required properties &mdash; System.Text.Json</a>: <em>"Required properties must be present in the JSON payload for deserialization to succeed."</em></li>
+    <li>The <code>required</code> modifier is mapped to <code>JsonPropertyInfo.IsRequired = true</code> at the STJ metadata level, regardless of other attributes.</li>
+</ul>
+
+<h2>2.4 Reproduction</h2>
+
+<p>This can be reproduced with a minimal example:</p>
+
+<pre>
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+var json = """{"Name":"test"}""";
+var obj = JsonSerializer.Deserialize&lt;MyModel&gt;(json);
+// Throws: JsonPropertyInfo 'Hidden' is marked required but does not specify a setter.
+
+public class MyModel
+{
+    public string Name { get; set; } = "";
+
+    [JsonIgnore]
+    public required string Hidden { get; set; }
+}
+</pre>
+
+<h2>2.5 Alternatives Considered</h2>
+
+<table>
+    <tr><th>Approach</th><th>Compiles</th><th>STJ Works</th><th>Notes</th></tr>
+    <tr><td><code>required string Status { get; set; }</code></td><td>Yes</td><td style="color:red;"><strong>No</strong></td><td>STJ throws at deserialization</td></tr>
+    <tr><td><code>required string? Status { get; set; }</code></td><td>Yes</td><td style="color:red;"><strong>No</strong></td><td>Same STJ error &mdash; nullability does not affect <code>required</code> behavior</td></tr>
+    <tr><td><code>string? Status { get; set; }</code></td><td>Yes</td><td>Yes</td><td>Nullable &mdash; loses compile-time safety, allows null where it shouldn't be</td></tr>
+    <tr><td><code>string Status { get; set; } = "active"</code></td><td>Yes</td><td>Yes</td><td><strong>Chosen approach</strong> &mdash; safe default, non-nullable, always overwritten by repository</td></tr>
+</table>
+
+<h2>2.6 Decision</h2>
+
+<div class="callout-success">
+<strong>Resolution:</strong> <code>public string Status { get; set; } = "active";</code>
+</div>
+
+<p>This provides:</p>
+<ul>
+    <li><strong>Non-nullable type safety:</strong> No code path can produce a null Status.</li>
+    <li><strong>Safe default:</strong> "active" is the correct initial state per the MCP specification.</li>
+    <li><strong>Repository override:</strong> The data access layer always sets Status from the database column on reads (<code>server.Status = result.Status</code>) and hardcodes <code>"active"</code> on inserts.</li>
+    <li><strong>STJ compatibility:</strong> No conflict with <code>[JsonIgnore]</code>.</li>
+</ul>
+
+<h1>3. Issue #2: URL Path Decoding and Route Template Design</h1>
+
+<h2>3.1 Background</h2>
+
+<p>MCP server names follow the <code>domain/name</code> format (e.g., <code>com.microsoft/azure</code>). The API exposes endpoints like:</p>
+
+<pre>
+GET /v0.1/servers/{serverName}/versions
+GET /v0.1/servers/{serverName}/versions/{version}
+DELETE /v0.1/servers/{serverName}/versions/{version}
+</pre>
+
+<p>The PR changed the route templates from:</p>
+<pre>
+[HttpGet("{domain}/{name}/versions")]
+public async Task&lt;...&gt; ListServerVersions(string domain, string name)
+</pre>
+<p>To:</p>
+<pre>
+[HttpGet("{serverName}/versions")]
+public async Task&lt;...&gt; ListServerVersions(string serverName)
+</pre>
+
+<p>The intent was to simplify the API by having clients URL-encode the slash (<code>com.microsoft%2Fazure</code>) so the server name is a single path segment.</p>
+
+<h2>3.2 The Problem</h2>
+
+<p>ASP.NET Core's Kestrel web server <strong>automatically decodes percent-encoded characters in URL paths before routing</strong>. This means:</p>
+
+<ol>
+    <li>Client sends: <code>GET /v0.1/servers/com.microsoft%2Fazure/versions</code></li>
+    <li>Kestrel decodes path to: <code>/v0.1/servers/com.microsoft/azure/versions</code></li>
+    <li>Router sees 5 segments: <code>v0.1</code>, <code>servers</code>, <code>com.microsoft</code>, <code>azure</code>, <code>versions</code></li>
+    <li>Route template <code>{serverName}/versions</code> expects 2 segments after <code>servers/</code></li>
+    <li>Router receives 3 segments &rarr; <strong>no match &rarr; 404 Not Found</strong></li>
+</ol>
+
+<div class="callout-error">
+<strong>Result:</strong> All version and delete endpoints return 404 for any server name containing a slash, which is all valid MCP server names.
+</div>
+
+<h2>3.3 Framework Behavior Documentation</h2>
+
+<p>This is a well-known ASP.NET Core behavior:</p>
+
+<ul>
+    <li><a href="https://learn.microsoft.com/en-us/aspnet/core/fundamentals/routing">ASP.NET Core Routing</a>: URL paths are decoded before route matching.</li>
+    <li><a href="https://github.com/dotnet/aspnetcore/issues/11544">dotnet/aspnetcore#11544</a>: Long-standing issue discussing <code>%2F</code> handling in routes. The ASP.NET Core team's position is that path decoding is correct per RFC 3986 and will not change.</li>
+    <li>This behavior is consistent across Kestrel, IIS, and HTTP.sys.</li>
+</ul>
+
+<p>Unlike some frameworks (e.g., Node.js/Express, Python/Flask) that preserve percent-encoding in path segments and let route handlers decode explicitly, ASP.NET Core normalizes paths at the server level.</p>
+
+<h2>3.4 Alternatives Considered</h2>
+
+<table>
+    <tr><th>Approach</th><th>Works?</th><th>Tradeoffs</th></tr>
+    <tr><td><code>{domain}/{name}</code> (two params)</td><td style="color:green;"><strong>Yes</strong></td><td><strong>Chosen.</strong> Natural fit for <code>domain/name</code> format. Simple concatenation in handler.</td></tr>
+    <tr><td><code>{serverName}</code> (single param, encoded)</td><td style="color:red;"><strong>No</strong></td><td>Kestrel decodes <code>%2F</code> before routing &rarr; 404.</td></tr>
+    <tr><td><code>{**serverName}</code> (catch-all)</td><td style="color:red;"><strong>No</strong></td><td>Catch-all parameters must be the last segment. Cannot have <code>/versions</code> after it.</td></tr>
+    <tr><td>Double-encoding (<code>%252F</code>)</td><td>Yes</td><td>Non-standard. Clients must know to double-encode. Confusing, error-prone, violates principle of least surprise.</td></tr>
+    <tr><td>Custom middleware to re-encode <code>/</code></td><td>Yes</td><td>Fragile hack that fights the framework's URL normalization. Breaks other routes if not carefully scoped.</td></tr>
+    <tr><td>Query parameter (<code>?name=com.microsoft/azure</code>)</td><td>Yes</td><td>Changes the API contract entirely. Breaks MCP registry specification compliance.</td></tr>
+    <tr><td>Base64-encode server name</td><td>Yes</td><td>Non-standard. Clients must encode/decode. URLs become unreadable.</td></tr>
+</table>
+
+<h2>3.5 How Other Frameworks Handle This</h2>
+
+<table>
+    <tr><th>Framework</th><th>Decodes <code>%2F</code> before routing?</th><th>Single-param approach works?</th></tr>
+    <tr><td>ASP.NET Core (Kestrel)</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Node.js / Express</td><td>No</td><td>Yes</td></tr>
+    <tr><td>Python / Flask</td><td>No</td><td>Yes</td></tr>
+    <tr><td>Java / Spring Boot</td><td>Yes (configurable)</td><td>No (by default)</td></tr>
+    <tr><td>Go / net/http</td><td>Yes</td><td>No</td></tr>
+</table>
+
+<p>The reviewer's approach would work in Node.js or Python, but not in ASP.NET Core.</p>
+
+<h2>3.6 External API Examples</h2>
+
+<p>Microsoft's own APIs use the two-segment pattern for hierarchical identifiers:</p>
+<ul>
+    <li><strong>Azure Resource Manager:</strong> <code>/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/{provider}/{resourceType}</code></li>
+    <li><strong>NuGet API:</strong> <code>/v3/registration/{id}/{version}</code></li>
+    <li><strong>GitHub API:</strong> <code>/repos/{owner}/{repo}/...</code></li>
+</ul>
+
+<p>The <code>{domain}/{name}</code> pattern is the established convention for RESTful APIs serving hierarchical identifiers in ASP.NET Core.</p>
+
+<h2>3.7 Decision</h2>
+
+<div class="callout-success">
+<strong>Resolution:</strong> Retain the <code>{domain}/{name}</code> route template pattern.
+</div>
+
+<p>The external URL format remains unchanged for API consumers. Clients use the natural path format:</p>
+<pre>
+GET /v0.1/servers/com.microsoft/azure/versions
+GET /v0.1/servers/com.microsoft/azure/versions/latest
+</pre>
+
+<p>This is consistent with the MCP registry specification, which defines server names as <code>domain/name</code>, and with ASP.NET Core's routing constraints.</p>
+
+<h1>4. Summary</h1>
+
+<table>
+    <tr><th>Issue</th><th>Root Cause</th><th>Resolution</th></tr>
+    <tr>
+        <td><code>required</code> + <code>[JsonIgnore]</code></td>
+        <td>System.Text.Json enforces <code>required</code> at deserialization time, conflicting with <code>[JsonIgnore]</code></td>
+        <td>Remove <code>required</code>, use <code>= "active"</code> default</td>
+    </tr>
+    <tr>
+        <td><code>{serverName}</code> route pattern</td>
+        <td>Kestrel decodes <code>%2F</code> &rarr; <code>/</code> before routing, creating extra path segments</td>
+        <td>Use <code>{domain}/{name}</code> two-segment pattern</td>
+    </tr>
+</table>
+
+<p>Both issues are framework-level constraints that cannot be worked around without introducing fragile hacks or breaking the API contract. The chosen resolutions follow established ASP.NET Core patterns and maintain MCP specification compliance.</p>
+
+<div class="footer">
+<p>MCP Registry &mdash; Technical Decision Analysis &mdash; Confidential</p>
+</div>
+
+</body>
+</html>
