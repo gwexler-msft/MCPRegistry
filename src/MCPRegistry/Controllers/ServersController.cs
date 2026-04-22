@@ -13,8 +13,7 @@ public class ServersController : ControllerBase
     private readonly IServerRegistryService _registryService;
     private readonly ILogger<ServersController> _logger;
 
-    // Regex to validate semantic versioning (semver) format
-    // follows Backus–Naur Form Grammar for Valid SemVer Versions (https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)
+    // Backus-Naur Form Grammar for Valid SemVer Versions (https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)
     private readonly Regex _versionRegex = new Regex(
         @"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[0-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -113,16 +112,16 @@ public class ServersController : ControllerBase
     /// null or empty.</param>
     /// <returns>An <see cref="ActionResult{T}"/> containing a <see cref="ServerList"/> with the available server versions if the
     /// server exists; otherwise, a 404 Not Found response with an error message.</returns>
-    [HttpGet("{serverName}/versions")]
+    [HttpGet("{domain}/{name}/versions")]
     [EnableCors(Constants.CorsServersEndpointPolicy)]
     [ProducesResponseType(typeof(ServerList), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<ServerList>> ListServerVersions(string serverName)
+    public async Task<ActionResult<ServerList>> ListServerVersions(string domain, string name)
     {
         try
         {
-            var decodedServerName = Uri.UnescapeDataString(serverName);
+            var decodedServerName = $"{domain}/{name}";
             var versions = await _registryService.GetServerVersionsAsync(decodedServerName);
 
             if (versions.Count == 0)
@@ -157,7 +156,7 @@ public class ServersController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error listing server versions for {ServerName}", serverName);
+            _logger.LogError(ex, "Error listing server versions for {ServerName}", $"{domain}/{name}");
             return Problem("Internal server error", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
         }
     }
@@ -172,21 +171,21 @@ public class ServersController : ControllerBase
     /// characters.</param>
     /// <returns>An <see cref="ActionResult{T}"/> containing a <see cref="ServerResponse"/> with the server version details if
     /// found; otherwise, a 404 Not Found response with an <see cref="ProblemDetails"/>.</returns>
-    [HttpGet("{serverName}/versions/{version}")]
+    [HttpGet("{domain}/{name}/versions/{version}")]
     [EnableCors(Constants.CorsServersEndpointPolicy)]
     [ProducesResponseType(typeof(ServerResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<ServerResponse>> GetServerVersion(string serverName, string version)
+    public async Task<ActionResult<ServerResponse>> GetServerVersion(string domain, string name, string version)
     {
         try
         {
-            var decodedServerName = Uri.UnescapeDataString(serverName);
+            var decodedServerName = $"{domain}/{name}";
             var decodedVersion = Uri.UnescapeDataString(version);
 
             var serverVersion = await _registryService.GetServerVersionAsync(decodedServerName, decodedVersion);
 
-            if (serverVersion == null)
+            if (serverVersion is null)
             {
                 return NotFound("Server not found");
             }
@@ -213,24 +212,24 @@ public class ServersController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting server version {ServerName}@{Version}", serverName, version);
-            return Problem($"Error getting server version {serverName}@{version}", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
+            _logger.LogError(ex, "Error getting server version {ServerName}@{Version}", $"{domain}/{name}", version);
+            return Problem("Internal server error", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
         }
     }
 
     /// <summary>
     /// Delete specific version of an MCP server
     /// </summary>
-    [HttpDelete("{serverName}/versions/{version}")]
+    [HttpDelete("{domain}/{name}/versions/{version}")]
     [EnableCors(Constants.CorsServersEndpointPolicy)]
     [ProducesResponseType(typeof(ServerResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> DeleteServerVersion(string serverName, string version)
+    public async Task<IActionResult> DeleteServerVersion(string domain, string name, string version)
     {
         try
         {
-            var decodedServerName = Uri.UnescapeDataString(serverName);
+            var decodedServerName = $"{domain}/{name}";
             var decodedVersion = Uri.UnescapeDataString(version);
 
             var serverVersion = await _registryService.GetServerVersionAsync(decodedServerName, decodedVersion);
@@ -250,7 +249,7 @@ public class ServersController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting server version {ServerName}@{Version}", serverName, version);
+            _logger.LogError(ex, "Error deleting server version {ServerName}@{Version}", $"{domain}/{name}", version);
             return Problem("Failed to delete server version", statusCode: StatusCodes.Status500InternalServerError, title: "Internal server error");
         }
     }
