@@ -7,19 +7,19 @@ echo "Granting SQL data-plane access to managed identity..."
 
 eval "$(azd env get-values)"
 
-if [ -z "${AZURE_SQL_SERVER_NAME:-}" ] || [ -z "${AZURE_SQL_DATABASE_NAME:-}" ] || [ -z "${AZURE_RESOURCE_GROUP:-}" ]; then
-    echo "ERROR: Missing required azd env values (AZURE_SQL_SERVER_NAME, AZURE_SQL_DATABASE_NAME, AZURE_RESOURCE_GROUP)."
+if [ -z "${AZURE_SQL_SERVER_NAME:-}" ] || [ -z "${AZURE_SQL_DATABASE_NAME:-}" ] || [ -z "${AZURE_RESOURCE_GROUP:-}" ] || [ -z "${AZURE_SUBSCRIPTION_ID:-}" ]; then
+    echo "ERROR: Missing required azd env values (AZURE_SQL_SERVER_NAME, AZURE_SQL_DATABASE_NAME, AZURE_RESOURCE_GROUP, AZURE_SUBSCRIPTION_ID)."
     exit 1
 fi
 
-IDENTITY_NAME="${SERVICE_WEB_NAME:-}"
-if [ -z "$IDENTITY_NAME" ]; then
-    echo "ERROR: Missing SERVICE_WEB_NAME in azd env."
+MANAGED_IDENTITY_DISPLAY_NAME="${AZURE_MANAGED_IDENTITY_NAME:-}"
+if [ -z "$MANAGED_IDENTITY_DISPLAY_NAME" ]; then
+    echo "ERROR: Missing AZURE_MANAGED_IDENTITY_NAME in azd env. Re-run 'azd provision' after pulling the latest infra outputs."
     exit 1
 fi
 
-MANAGED_IDENTITY_RESOURCE=$(az containerapp show --name "$IDENTITY_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query "identity.userAssignedIdentities | keys(@) | [0]" -o tsv)
-MANAGED_IDENTITY_DISPLAY_NAME=$(echo "$MANAGED_IDENTITY_RESOURCE" | awk -F'/' '{print $NF}')
+# Pin az CLI to the same subscription azd is using; the user's default may differ.
+az account set --subscription "$AZURE_SUBSCRIPTION_ID" --output none
 
 SQL_FQDN="${AZURE_SQL_SERVER_NAME}.database.windows.net"
 

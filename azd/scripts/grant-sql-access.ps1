@@ -8,20 +8,21 @@ $envValues = azd env get-values --output json | ConvertFrom-Json
 $sqlServer = $envValues.AZURE_SQL_SERVER_NAME
 $sqlDatabase = $envValues.AZURE_SQL_DATABASE_NAME
 $resourceGroup = $envValues.AZURE_RESOURCE_GROUP
+$subscriptionId = $envValues.AZURE_SUBSCRIPTION_ID
+$managedIdentityDisplayName = $envValues.AZURE_MANAGED_IDENTITY_NAME
 
-if (-not $sqlServer -or -not $sqlDatabase -or -not $resourceGroup) {
-    Write-Error "Missing required azd env values (AZURE_SQL_SERVER_NAME, AZURE_SQL_DATABASE_NAME, AZURE_RESOURCE_GROUP)."
+if (-not $sqlServer -or -not $sqlDatabase -or -not $resourceGroup -or -not $subscriptionId) {
+    Write-Error "Missing required azd env values (AZURE_SQL_SERVER_NAME, AZURE_SQL_DATABASE_NAME, AZURE_RESOURCE_GROUP, AZURE_SUBSCRIPTION_ID)."
     exit 1
 }
 
-$identityName = $envValues.SERVICE_WEB_NAME
-if (-not $identityName) {
-    Write-Error "Missing SERVICE_WEB_NAME in azd env."
+if (-not $managedIdentityDisplayName) {
+    Write-Error "Missing AZURE_MANAGED_IDENTITY_NAME in azd env. Re-run 'azd provision' after pulling the latest infra outputs."
     exit 1
 }
 
-$managedIdentityResource = az containerapp show --name $identityName --resource-group $resourceGroup --query "identity.userAssignedIdentities | keys(@) | [0]" -o tsv
-$managedIdentityDisplayName = ($managedIdentityResource -split '/')[-1]
+# Pin az CLI to the same subscription azd is using; the user's default may differ.
+az account set --subscription $subscriptionId --output none
 
 $sqlFqdn = "${sqlServer}.database.windows.net"
 

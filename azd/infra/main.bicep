@@ -92,3 +92,5 @@ output API_URL string = resources.outputs.apiUrl
 output UI_URL string = resources.outputs.uiUrl
 output SERVICE_WEB_NAME string = resources.outputs.containerAppName
 output SERVICE_UI_NAME string = resources.outputs.containerAppUiName
+output AZURE_MANAGED_IDENTITY_NAME string = resources.outputs.managedIdentityName
+output AZURE_MANAGED_IDENTITY_CLIENT_ID string = resources.outputs.managedIdentityClientId
