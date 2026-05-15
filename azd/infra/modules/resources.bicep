@@ -21,6 +21,15 @@ param uiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-hello
 @description('ASP.NET Core environment (Development, Production)')
 param aspnetEnvironment string = 'Production'
 
+@description('Resource ID of the subnet used by the Container Apps environment.')
+param acaSubnetId string
+
+@description('Resource ID of the subnet used for private endpoints.')
+param peSubnetId string
+
+@description('Resource ID of the privatelink.database.windows.net private DNS zone.')
+param sqlPrivateDnsZoneId string
+
 module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.15.0' = {
   name: 'logAnalytics'
   params: {
@@ -66,7 +75,15 @@ module containerAppsEnv 'br/public:avm/res/app/managed-environment:0.13.1' = {
     location: location
     tags: tags
     zoneRedundant: false
-    publicNetworkAccess: 'Enabled'
+    internal: true
+    infrastructureSubnetResourceId: acaSubnetId
+    publicNetworkAccess: 'Disabled'
+    workloadProfiles: [
+      {
+        name: 'Consumption'
+        workloadProfileType: 'Consumption'
+      }
+    ]
     appLogsConfiguration: {
       destination: 'log-analytics'
       logAnalyticsWorkspaceResourceId: logAnalytics.outputs.resourceId
@@ -81,6 +98,9 @@ module sqlServer 'br/public:avm/res/sql/server:0.21.1' = {
     location: location
     tags: tags
     minimalTlsVersion: '1.2'
+    // Public access stays enabled so postprovision scripts (DACPAC + grant)
+    // can connect from the operator's laptop via a temporary firewall rule.
+    // The application path is private endpoint only.
     publicNetworkAccess: 'Enabled'
     administrators: {
       administratorType: 'ActiveDirectory'
@@ -106,13 +126,21 @@ module sqlServer 'br/public:avm/res/sql/server:0.21.1' = {
         minCapacity: '0.5'
       }
     ]
-    firewallRules: [
+    privateEndpoints: [
       {
-        name: 'AllowAzureServices'
-        startIpAddress: '0.0.0.0'
-        endIpAddress: '0.0.0.0'
+        name: '${names.sqlServer}-pe'
+        subnetResourceId: peSubnetId
+        service: 'sqlServer'
+        privateDnsZoneGroup: {
+          privateDnsZoneGroupConfigs: [
+            {
+              privateDnsZoneResourceId: sqlPrivateDnsZoneId
+            }
+          ]
+        }
       }
     ]
+    firewallRules: []
   }
 }
 
@@ -130,10 +158,11 @@ module containerApp 'br/public:avm/res/app/container-app:0.22.0' = {
       ]
     }
     activeRevisionsMode: 'Single'
-    ingressExternal: true
+    ingressExternal: false
     ingressTargetPort: 8080
     ingressTransport: 'auto'
     ingressAllowInsecure: false
+    workloadProfileName: 'Consumption'
     registries: [
       {
         server: containerRegistry.outputs.loginServer
@@ -195,10 +224,11 @@ module containerAppUi 'br/public:avm/res/app/container-app:0.22.0' = {
       ]
     }
     activeRevisionsMode: 'Single'
-    ingressExternal: true
+    ingressExternal: false
     ingressTargetPort: 8080
     ingressTransport: 'auto'
     ingressAllowInsecure: false
+    workloadProfileName: 'Consumption'
     registries: [
       {
         server: containerRegistry.outputs.loginServer

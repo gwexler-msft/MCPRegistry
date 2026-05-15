@@ -15,6 +15,11 @@
     "sqlServerName": { "value": "${AZURE_SQL_SERVER_NAME=}" },
     "sqlDatabaseName": { "value": "${AZURE_SQL_DATABASE_NAME=MCPRegistry}" },
     "containerAppName": { "value": "${AZURE_CONTAINER_APP_NAME=}" },
+    "vnetName": { "value": "${AZURE_VNET_NAME=}" },
+    "vnetAddressPrefix": { "value": "${AZURE_VNET_ADDRESS_PREFIX=10.100.0.0/16}" },
+    "acaSubnetPrefix": { "value": "${AZURE_ACA_SUBNET_PREFIX=10.100.0.0/23}" },
+    "peSubnetPrefix": { "value": "${AZURE_PE_SUBNET_PREFIX=10.100.2.0/24}" },
+    "peerVnetResourceId": { "value": "${AZURE_PEER_VNET_RESOURCE_ID=}" },
     "aspnetEnvironment": { "value": "${aspnetEnvironment=Production}" }
   }
 }

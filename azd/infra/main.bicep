@@ -38,6 +38,12 @@ param sqlServerName string = ''
 param sqlDatabaseName string = 'MCPRegistry'
 @description('Override: Container App name')
 param containerAppName string = ''
+@description('Override: Virtual Network name')
+param vnetName string = ''
+@description('Override: Container Apps subnet name')
+param acaSubnetName string = 'snet-aca'
+@description('Override: Private Endpoint subnet name')
+param peSubnetName string = 'snet-pe'
 
 @description('Container image for the API app (default: placeholder for initial provision)')
 param apiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
@@ -47,6 +53,18 @@ param uiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-hello
 
 @description('ASP.NET Core environment (Development, Production)')
 param aspnetEnvironment string = 'Production'
+
+@description('VNet address space (CIDR).')
+param vnetAddressPrefix string = '10.100.0.0/16'
+
+@description('Container Apps subnet prefix. Must be /23 or larger.')
+param acaSubnetPrefix string = '10.100.0.0/23'
+
+@description('Private endpoint subnet prefix.')
+param peSubnetPrefix string = '10.100.2.0/24'
+
+@description('Optional resource ID of an existing VNet to peer with for inbound access. Empty = no peering. Format: /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<name>')
+param peerVnetResourceId string = ''
 
 var suffix = generateSuffix(subscription().subscriptionId, environmentName, location)
 var tags = union({ 'azd-env-name': environmentName }, customTags)
@@ -61,12 +79,33 @@ var resolvedNames = {
   sqlDatabase: sqlDatabaseName
   containerApp: !empty(containerAppName) ? containerAppName : getDefaultName('ca', workloadName, suffix)
   containerAppUi: getDefaultName('ca', '${workloadName}-ui', suffix)
+  vnet: !empty(vnetName) ? vnetName : getDefaultName('vnet', workloadName, suffix)
+  subnetAca: acaSubnetName
+  subnetPe: peSubnetName
 }
 
 resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {
   name: resolvedNames.resourceGroup
   location: location
   tags: tags
+}
+
+module network './modules/network.bicep' = {
+  scope: rg
+  name: 'network'
+  params: {
+    location: location
+    tags: tags
+    names: {
+      vnet: resolvedNames.vnet
+      subnetAca: resolvedNames.subnetAca
+      subnetPe: resolvedNames.subnetPe
+    }
+    vnetAddressPrefix: vnetAddressPrefix
+    acaSubnetPrefix: acaSubnetPrefix
+    peSubnetPrefix: peSubnetPrefix
+    peerVnetResourceId: peerVnetResourceId
+  }
 }
 
 module resources './modules/resources.bicep' = {
@@ -80,6 +119,9 @@ module resources './modules/resources.bicep' = {
     apiContainerImage: apiContainerImage
     uiContainerImage: uiContainerImage
     aspnetEnvironment: aspnetEnvironment
+    acaSubnetId: network.outputs.acaSubnetId
+    peSubnetId: network.outputs.peSubnetId
+    sqlPrivateDnsZoneId: network.outputs.sqlPrivateDnsZoneId
   }
 }
 
@@ -94,3 +136,5 @@ output SERVICE_WEB_NAME string = resources.outputs.containerAppName
 output SERVICE_UI_NAME string = resources.outputs.containerAppUiName
 output AZURE_MANAGED_IDENTITY_NAME string = resources.outputs.managedIdentityName
 output AZURE_MANAGED_IDENTITY_CLIENT_ID string = resources.outputs.managedIdentityClientId
+output AZURE_VNET_NAME string = network.outputs.vnetName
+output AZURE_VNET_ID string = network.outputs.vnetId
