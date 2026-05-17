@@ -131,6 +131,7 @@ module resources './modules/resources.bicep' = {
     peSubnetId: network.outputs.peSubnetId
     sqlPrivateDnsZoneId: network.outputs.sqlPrivateDnsZoneId
     vnetId: network.outputs.vnetId
+    vnetAddressPrefix: vnetAddressPrefix
   }
 }
 

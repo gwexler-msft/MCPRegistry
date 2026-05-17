@@ -33,6 +33,9 @@ param sqlPrivateDnsZoneId string
 @description('Resource ID of the local VNet (used to link the ACA env private DNS zone).')
 param vnetId string
 
+@description('VNet address space (CIDR). Used as the allow-rule range in the apps\' ipSecurityRestrictions. Any caller whose source IP is inside this range is allowed; everything else is implicitly denied.')
+param vnetAddressPrefix string
+
 module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.15.0' = {
   name: 'logAnalytics'
   params: {
@@ -78,9 +81,13 @@ module containerAppsEnv 'br/public:avm/res/app/managed-environment:0.13.1' = {
     location: location
     tags: tags
     zoneRedundant: false
-    internal: true
+    // Option B: external env + per-app ipSecurityRestrictions allowlist.
+    // The internal-env design is blocked by platform bug
+    // https://github.com/microsoft/azure-container-apps/issues/1714.
+    // See docs/architecture-option-b.md for full context and the revert plan.
+    internal: false
     infrastructureSubnetResourceId: acaSubnetId
-    publicNetworkAccess: 'Disabled'
+    publicNetworkAccess: 'Enabled'
     workloadProfiles: [
       {
         name: 'Consumption'
@@ -94,9 +101,12 @@ module containerAppsEnv 'br/public:avm/res/app/managed-environment:0.13.1' = {
   }
 }
 
-// Private DNS zone for the ACA env's defaultDomain. Apps in the local VNet
-// need this to resolve <app>.internal.<defaultDomain> to the env's internal
-// load balancer staticIp; without it, requests fail with 404 from the env L7.
+// Private DNS zone for the ACA env's defaultDomain. Retained in Option B for
+// design continuity with the original internal-env layout so reverting after
+// platform bug #1714 is fixed is a one-flag flip. In external-env mode the
+// zone's A records resolve to the env's public IP (mirrors public DNS) and
+// provide no isolation benefit — the actual security control is the apps'
+// ipSecurityRestrictions allowlist below.
 module acaDns './aca-dns.bicep' = {
   name: 'acaDns'
   params: {
@@ -174,11 +184,19 @@ module containerApp 'br/public:avm/res/app/container-app:0.22.0' = {
       ]
     }
     activeRevisionsMode: 'Single'
-    ingressExternal: false
+    ingressExternal: true
     ingressTargetPort: 8080
     ingressTransport: 'http'
     ingressAllowInsecure: false
     workloadProfileName: 'Consumption'
+    ipSecurityRestrictions: [
+      {
+        name: 'allow-vnet'
+        action: 'Allow'
+        ipAddressRange: vnetAddressPrefix
+        description: 'Allow only callers whose source IP is inside the local VNet CIDR. Any unmatched source is implicitly denied.'
+      }
+    ]
     registries: [
       {
         server: containerRegistry.outputs.loginServer
@@ -240,11 +258,19 @@ module containerAppUi 'br/public:avm/res/app/container-app:0.22.0' = {
       ]
     }
     activeRevisionsMode: 'Single'
-    ingressExternal: false
+    ingressExternal: true
     ingressTargetPort: 8080
     ingressTransport: 'http'
     ingressAllowInsecure: false
     workloadProfileName: 'Consumption'
+    ipSecurityRestrictions: [
+      {
+        name: 'allow-vnet'
+        action: 'Allow'
+        ipAddressRange: vnetAddressPrefix
+        description: 'Allow only callers whose source IP is inside the local VNet CIDR. Any unmatched source is implicitly denied.'
+      }
+    ]
     registries: [
       {
         server: containerRegistry.outputs.loginServer

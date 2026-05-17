@@ -23,8 +23,11 @@ if [[ -z "$RG" || -z "$ACI_SUBNET_ID" || -z "$ENV_DOMAIN" || -z "$API_NAME" || -
     exit 1
 fi
 
-API_FQDN="${API_NAME}.internal.${ENV_DOMAIN}"
-UI_FQDN="${UI_NAME}.internal.${ENV_DOMAIN}"
+# External env (Option B) publishes apps as <app>.<envDomain>. The synthetic
+# ACA env private DNS zone resolves wildcards to the env's public IP, but the
+# Host header must match the external form for ingress to route correctly.
+API_FQDN="${API_NAME}.${ENV_DOMAIN}"
+UI_FQDN="${UI_NAME}.${ENV_DOMAIN}"
 TS="$(date +%H%M%S)"
 ACI_NAME="curl-test-${TS}"
 YAML_PATH="$(mktemp -t curl-test-XXXXXX.yaml)"

@@ -25,8 +25,11 @@ if (-not $rg -or -not $aciSubnetId -or -not $envDomain -or -not $apiName -or -no
     exit 1
 }
 
-$apiFqdn = "$apiName.internal.$envDomain"
-$uiFqdn = "$uiName.internal.$envDomain"
+# External env (Option B) publishes apps as <app>.<envDomain>. The synthetic
+# ACA env private DNS zone resolves wildcards to the env's public IP, but the
+# Host header must match the external form for ingress to route correctly.
+$apiFqdn = "$apiName.$envDomain"
+$uiFqdn = "$uiName.$envDomain"
 $timestamp = Get-Date -Format 'HHmmss'
 $aciName = "curl-test-$timestamp"
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) "$aciName.yaml"
