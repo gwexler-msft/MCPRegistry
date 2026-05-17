@@ -30,9 +30,10 @@
 | `id-mcpreg-<suffix>` | User-Assigned Managed Identity | n/a | Used by both apps for ACR + SQL |
 | `log-mcpreg-<suffix>` | Log Analytics Workspace | n/a | App logs sink |
 | `privatelink.database.windows.net` | Private DNS Zone | n/a | Linked to the VNet; A record bound to the SQL PE NIC |
-| `privatelink.<region>.azurecontainerapps.io` | Private DNS Zone | n/a | **Not created in the base design.** See [DNS approach](#dns-approach) below for when to add it as an opt-in hardening step. |
+| `<envDefaultDomain>` (synthetic ACA zone) | Private DNS Zone | n/a | Built by [azd/infra/modules/aca-dns.bicep](../azd/infra/modules/aca-dns.bicep). Wildcard A records `*` and `*.internal` → env `staticIp`. In Option B `staticIp` is the env's **public IP**, so these records mirror what Azure's public DNS already returns — **no security benefit in this mode**. Kept for design continuity with the original internal-env layout so the post-bug-fix revert is a one-flag flip. See [DNS approach](#dns-approach). |
+| `privatelink.<region>.azurecontainerapps.io` | Private DNS Zone | n/a | **Not created in the base design.** A *different* zone from the synthetic one above — see [Optional hardening](#optional-hardening--add-the-privatelink-zone-if-you-also-add-a-pe). Only relevant if you also add a PE for the env (which converges with [Option A](architecture-option-a.md)). |
 
-> **Difference from internal-only design**: `internal` flips from `true` to `false`; `publicNetworkAccess` flips from `Disabled` to `Enabled`; apps flip `ingressExternal` from `false` to `true` and gain `ipSecurityRestrictions`. The synthetic ACA env private DNS zone goes away — we use the platform-provided public DNS for the env. SQL design is unchanged.
+> **Difference from internal-only design**: `internal` flips from `true` to `false`; `publicNetworkAccess` flips from `Disabled` to `Enabled`; apps flip `ingressExternal` from `false` to `true` and gain `ipSecurityRestrictions`. The synthetic ACA env private DNS zone is **kept** for design continuity (see [DNS approach](#dns-approach)). SQL design is unchanged.
 
 ---
 
@@ -57,6 +58,7 @@ flowchart TB
                 end
             end
             DNSZONE_SQL["Private DNS Zone<br/>privatelink.database.windows.net<br/>A: sql-mcpreg → 10.100.2.x"]
+            DNSZONE_ACA["Private DNS Zone (synthetic, kept for revert)<br/>envDefaultDomain<br/>A: * → env public IP<br/>A: *.internal → env public IP"]
             SQL["Azure SQL Server<br/>sql-mcpreg<br/>publicAccess: Enabled<br/>firewall: empty<br/>azureADOnlyAuth: true"]
             SQLDB[("SQL Database<br/>MCPRegistry<br/>GP_S_Gen5 serverless")]
             ACR["Azure Container Registry<br/>crmcpreg (Basic, public)<br/>admin user: disabled"]
@@ -71,6 +73,7 @@ flowchart TB
     PE_SQL --tunnels to--> SQL
     SQL --contains--> SQLDB
     DNSZONE_SQL -.linked to.-> VNET
+    DNSZONE_ACA -.linked to.-> VNET
     APP_API -.uses.-> MI
     APP_UI -.uses.-> MI
     CAE --logs to--> LAW
@@ -78,9 +81,11 @@ flowchart TB
     classDef sub fill:#e3f2fd,stroke:#1976d2
     classDef priv fill:#c8e6c9,stroke:#2e7d32
     classDef pub fill:#ffe0b2,stroke:#e65100
+    classDef neutral fill:#eceff1,stroke:#546e7a
     classDef ext fill:#ffcdd2,stroke:#c62828
     class SNET_ACA,SNET_PE,SNET_ACI,VNET sub
     class APP_API,APP_UI,PE_SQL,DNSZONE_SQL,ACI priv
+    class DNSZONE_ACA neutral
     class SQL,ACR,CAE pub
     class Internet ext
 ```
@@ -237,21 +242,28 @@ flowchart LR
 
 ## DNS approach
 
-The base Option B design **does not create a private DNS zone for `containerapps.io`**. In-VNet callers resolve the app FQDN via public Azure DNS, which returns the env's public IP. Traffic from the VNet to that public IP stays on the Azure backbone (it never traverses the public internet), and the security boundary is enforced at L7 by `ipSecurityRestrictions`.
+Option B **keeps the synthetic ACA env private DNS zone** built by [azd/infra/modules/aca-dns.bicep](../azd/infra/modules/aca-dns.bicep) — the same module the original internal-env design uses. In Option B's external-env mode the zone provides **no security benefit**; it's retained purely for **design continuity** so reverting to the original internal-env layout after the [platform bug](https://github.com/microsoft/azure-container-apps/issues/1714) is fixed is a one-flag flip.
+
+In Option B, the env is external and `env.staticIp` is a **public IP**. The wildcard A records the synthetic zone publishes (`*` and `*.internal`) therefore point at the **same public IP** that Azure's public DNS already returns. In-VNet callers will resolve to the same answer either way; the security boundary is enforced at L7 by `ipSecurityRestrictions`, not by DNS.
 
 ```mermaid
 flowchart LR
-    Client["In-VNet client"] --1. Resolve ca-mcpreg.&lt;envDomain&gt;.azurecontainerapps.io--> AzDNS["Public Azure DNS"]
-    AzDNS --2. A record → env public IP--> Client
+    Client["In-VNet client"] --1. Resolve ca-mcpreg.envDomain.azurecontainerapps.io--> PrivDNS["Synthetic private zone<br/>(VNet-linked, kept for revert)"]
+    PrivDNS --2. A record → env public IP--> Client
     Client --3. HTTPS to public IP<br/>(source = 10.100.x.x)--> ENV["Env public frontend"]
     ENV --4. ipSecurityRestrictions check--> Filter["ALLOW (in 10.100.0.0/16)"]
     Filter --5. forward to app--> APP["ca-mcpreg replica"]
 ```
 
-Why no private zone is needed:
-- There is **no internal LB and no PE NIC** to anchor a private A record against. The env's `staticIp` for an external Workload Profiles env is its public IP, so overriding DNS to point at it provides no isolation benefit.
-- The IP allowlist is the actual security control; DNS doesn't influence it (Container Apps `ipSecurityRestrictions` evaluates the caller's source IP, not the DNS name used).
-- Skipping the zone keeps the Bicep minimal and avoids drift between public and private records.
+Why we keep the zone in Option B:
+- **Revert continuity.** When MS ships a fix, reverting to the original internal-env design is a one-flag flip on the env (`internal: true` + `publicNetworkAccess: 'Disabled'`) plus the inverse flips on each app (`ingressExternal: false`, drop `ipSecurityRestrictions`). The zone's A records automatically start resolving to the **private** internal-LB IP because they read from the `env.staticIp` output, which becomes private when the env flips to internal. No Bicep additions needed for DNS.
+- **Peer-VNet links survive.** Any manually-created peer-VNet DNS links (per the [Adding inbound access](#adding-inbound-access-post-deploy) section) stay valid across the Option B period and don't need to be torn down and recreated.
+- **Cost is zero.** Private DNS zones are free; the only cost is mild operator confusion, which this section is here to defuse.
+
+What the zone is **not** in Option B:
+- **Not a security control.** `ipSecurityRestrictions` is — Container Apps evaluates the caller's source IP, not the DNS name used.
+- **Not anchored at any private IP.** The env has no internal LB or PE NIC in this design; the records resolve to the env's public IP.
+- **Not the same as `privatelink.<region>.azurecontainerapps.io`.** That's a *different* zone, only meaningful with a Private Endpoint — see [Optional hardening](#optional-hardening--add-the-privatelink-zone-if-you-also-add-a-pe).
 
 ### Optional hardening — add the privatelink zone if you also add a PE
 
@@ -312,9 +324,9 @@ At that point you're paying ~$7/mo for the PE in exchange for stronger DNS isola
  }
 ```
 
-Same change on `containerAppUi`. The synthetic `aca-dns.bicep` module (which built a fake private zone for `<envDomain>` pointed at `staticIp`) is **deleted** — Azure's public DNS is used directly.
+Same change on `containerAppUi`. The synthetic `aca-dns.bicep` module is **left in place** — see [DNS approach](#dns-approach) for why. In Option B the zone's records resolve to the env's public IP (no isolation benefit), but keeping the module wired makes the eventual revert to the original internal-env design a one-flag flip.
 
-No changes to [azd/infra/modules/network.bicep](../azd/infra/modules/network.bicep) beyond the snet-aci subnet already added (for the curl-test ACI). No new private DNS zones for ACA.
+No changes to [azd/infra/modules/network.bicep](../azd/infra/modules/network.bicep) beyond the snet-aci subnet already added (for the curl-test ACI). No new private DNS zones for ACA — the synthetic one carries over from the original design unchanged.
 
 The VNet CIDR `10.100.0.0/16` is parameterized in `main.bicep` already; we pass it into `resources.bicep` so the allowlist is auto-generated and stays in sync if the CIDR ever changes.
 
@@ -367,4 +379,4 @@ Option B is the **minimum-cost, minimum-change** workaround. Pick it when "good 
 - **No WAF / DDoS Std.** Public exposure means basic Azure DDoS Basic only. Add Front Door Premium + WAF if the public IP needs L7 protections, even with the allowlist.
 - **ACR is public.** Same as Option A.
 - **SQL public listener stays on** for operator convenience. Same as Option A.
-- **Microsoft platform bug context.** This design exists because [microsoft/azure-container-apps#1714](https://github.com/microsoft/azure-container-apps/issues/1714) makes `internal: true` envs unusable. If MS ships a fix, we can revisit a true internal env and drop the IP allowlist.
+- **Microsoft platform bug context.** This design exists because [microsoft/azure-container-apps#1714](https://github.com/microsoft/azure-container-apps/issues/1714) makes `internal: true` envs unusable. When MS ships a fix, the revert path is intentionally minimal: flip `internal: true` + `publicNetworkAccess: 'Disabled'` on the env, flip `ingressExternal: false` and remove `ipSecurityRestrictions` on both apps. The synthetic ACA env DNS zone is already wired (see [DNS approach](#dns-approach)) and its A records become correct automatically once `env.staticIp` becomes the internal LB IP — no DNS work needed at revert time.
