@@ -6,7 +6,7 @@ param location string
 @description('Tags applied to all networking resources.')
 param tags object = {}
 
-@description('Resolved network resource names (vnet, subnetAca, subnetPe).')
+@description('Resolved network resource names (vnet, subnetAca, subnetPe, subnetAci).')
 param names object
 
 @description('VNet address space (CIDR).')
@@ -17,6 +17,9 @@ param acaSubnetPrefix string = '10.100.0.0/23'
 
 @description('Subnet for private endpoints.')
 param peSubnetPrefix string = '10.100.2.0/24'
+
+@description('Subnet for in-VNet test container instances (e.g., curl-test). Delegated to Microsoft.ContainerInstance/containerGroups.')
+param aciSubnetPrefix string = '10.100.3.0/27'
 
 @description('Optional resource ID of an existing VNet to peer with for inbound access. Empty = no peering.')
 param peerVnetResourceId string = ''
@@ -49,6 +52,21 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
         name: names.subnetPe
         properties: {
           addressPrefix: peSubnetPrefix
+          privateEndpointNetworkPolicies: 'Disabled'
+        }
+      }
+      {
+        name: names.subnetAci
+        properties: {
+          addressPrefix: aciSubnetPrefix
+          delegations: [
+            {
+              name: 'Microsoft.ContainerInstance.containerGroups'
+              properties: {
+                serviceName: 'Microsoft.ContainerInstance/containerGroups'
+              }
+            }
+          ]
           privateEndpointNetworkPolicies: 'Disabled'
         }
       }
@@ -110,4 +128,5 @@ output vnetId string = vnet.id
 output vnetName string = vnet.name
 output acaSubnetId string = '${vnet.id}/subnets/${names.subnetAca}'
 output peSubnetId string = '${vnet.id}/subnets/${names.subnetPe}'
+output aciSubnetId string = '${vnet.id}/subnets/${names.subnetAci}'
 output sqlPrivateDnsZoneId string = sqlPrivateDnsZone.id

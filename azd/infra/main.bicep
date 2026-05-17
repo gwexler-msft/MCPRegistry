@@ -44,6 +44,8 @@ param vnetName string = ''
 param acaSubnetName string = 'snet-aca'
 @description('Override: Private Endpoint subnet name')
 param peSubnetName string = 'snet-pe'
+@description('Override: ACI test subnet name (for in-VNet curl-test container)')
+param aciSubnetName string = 'snet-aci'
 
 @description('Container image for the API app (default: placeholder for initial provision)')
 param apiContainerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
@@ -62,6 +64,9 @@ param acaSubnetPrefix string = '10.100.0.0/23'
 
 @description('Private endpoint subnet prefix.')
 param peSubnetPrefix string = '10.100.2.0/24'
+
+@description('ACI test subnet prefix (delegated to Microsoft.ContainerInstance/containerGroups). Used by curl-test container.')
+param aciSubnetPrefix string = '10.100.3.0/27'
 
 @description('Optional resource ID of an existing VNet to peer with for inbound access. Empty = no peering. Format: /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<name>')
 param peerVnetResourceId string = ''
@@ -82,6 +87,7 @@ var resolvedNames = {
   vnet: !empty(vnetName) ? vnetName : getDefaultName('vnet', workloadName, suffix)
   subnetAca: acaSubnetName
   subnetPe: peSubnetName
+  subnetAci: aciSubnetName
 }
 
 resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {
@@ -100,10 +106,12 @@ module network './modules/network.bicep' = {
       vnet: resolvedNames.vnet
       subnetAca: resolvedNames.subnetAca
       subnetPe: resolvedNames.subnetPe
+      subnetAci: resolvedNames.subnetAci
     }
     vnetAddressPrefix: vnetAddressPrefix
     acaSubnetPrefix: acaSubnetPrefix
     peSubnetPrefix: peSubnetPrefix
+    aciSubnetPrefix: aciSubnetPrefix
     peerVnetResourceId: peerVnetResourceId
   }
 }
@@ -122,6 +130,7 @@ module resources './modules/resources.bicep' = {
     acaSubnetId: network.outputs.acaSubnetId
     peSubnetId: network.outputs.peSubnetId
     sqlPrivateDnsZoneId: network.outputs.sqlPrivateDnsZoneId
+    vnetId: network.outputs.vnetId
   }
 }
 
@@ -138,3 +147,7 @@ output AZURE_MANAGED_IDENTITY_NAME string = resources.outputs.managedIdentityNam
 output AZURE_MANAGED_IDENTITY_CLIENT_ID string = resources.outputs.managedIdentityClientId
 output AZURE_VNET_NAME string = network.outputs.vnetName
 output AZURE_VNET_ID string = network.outputs.vnetId
+output AZURE_ACI_SUBNET_ID string = network.outputs.aciSubnetId
+output AZURE_CONTAINER_APPS_ENVIRONMENT_NAME string = resources.outputs.containerAppsEnvironmentName
+output AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN string = resources.outputs.containerAppsEnvironmentDefaultDomain
+output AZURE_CONTAINER_APPS_ENVIRONMENT_STATIC_IP string = resources.outputs.containerAppsEnvironmentStaticIp

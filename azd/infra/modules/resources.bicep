@@ -30,6 +30,9 @@ param peSubnetId string
 @description('Resource ID of the privatelink.database.windows.net private DNS zone.')
 param sqlPrivateDnsZoneId string
 
+@description('Resource ID of the local VNet (used to link the ACA env private DNS zone).')
+param vnetId string
+
 module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.15.0' = {
   name: 'logAnalytics'
   params: {
@@ -88,6 +91,19 @@ module containerAppsEnv 'br/public:avm/res/app/managed-environment:0.13.1' = {
       destination: 'log-analytics'
       logAnalyticsWorkspaceResourceId: logAnalytics.outputs.resourceId
     }
+  }
+}
+
+// Private DNS zone for the ACA env's defaultDomain. Apps in the local VNet
+// need this to resolve <app>.internal.<defaultDomain> to the env's internal
+// load balancer staticIp; without it, requests fail with 404 from the env L7.
+module acaDns './aca-dns.bicep' = {
+  name: 'acaDns'
+  params: {
+    envDefaultDomain: containerAppsEnv.outputs.defaultDomain
+    envStaticIp: containerAppsEnv.outputs.staticIp
+    vnetId: vnetId
+    tags: tags
   }
 }
 
@@ -160,7 +176,7 @@ module containerApp 'br/public:avm/res/app/container-app:0.22.0' = {
     activeRevisionsMode: 'Single'
     ingressExternal: false
     ingressTargetPort: 8080
-    ingressTransport: 'auto'
+    ingressTransport: 'http'
     ingressAllowInsecure: false
     workloadProfileName: 'Consumption'
     registries: [
@@ -194,7 +210,7 @@ module containerApp 'br/public:avm/res/app/container-app:0.22.0' = {
       }
     ]
     scaleSettings: {
-      minReplicas: 0
+      minReplicas: 1
       maxReplicas: 3
       rules: [
         {
@@ -226,7 +242,7 @@ module containerAppUi 'br/public:avm/res/app/container-app:0.22.0' = {
     activeRevisionsMode: 'Single'
     ingressExternal: false
     ingressTargetPort: 8080
-    ingressTransport: 'auto'
+    ingressTransport: 'http'
     ingressAllowInsecure: false
     workloadProfileName: 'Consumption'
     registries: [
@@ -256,7 +272,7 @@ module containerAppUi 'br/public:avm/res/app/container-app:0.22.0' = {
       }
     ]
     scaleSettings: {
-      minReplicas: 0
+      minReplicas: 1
       maxReplicas: 2
       rules: [
         {
@@ -282,3 +298,6 @@ output containerAppName string = containerApp.outputs.name
 output containerAppUiName string = containerAppUi.outputs.name
 output managedIdentityName string = managedIdentity.outputs.name
 output managedIdentityClientId string = managedIdentity.outputs.clientId
+output containerAppsEnvironmentName string = containerAppsEnv.outputs.name
+output containerAppsEnvironmentDefaultDomain string = containerAppsEnv.outputs.defaultDomain
+output containerAppsEnvironmentStaticIp string = containerAppsEnv.outputs.staticIp

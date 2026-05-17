@@ -2,7 +2,11 @@
 
 This document describes the production network architecture for the MCP Registry deployment after lockdown. It covers the VNet topology, all traffic flows (data-plane, control-plane, management, and DNS), identity and auth, and operator/deployment paths.
 
-The architecture is implemented in [azd/infra/main.bicep](../azd/infra/main.bicep), [azd/infra/modules/network.bicep](../azd/infra/modules/network.bicep), and [azd/infra/modules/resources.bicep](../azd/infra/modules/resources.bicep).
+The architecture is implemented in [azd/infra/main.bicep](../azd/infra/main.bicep), [azd/infra/modules/network.bicep](../azd/infra/modules/network.bicep), [azd/infra/modules/resources.bicep](../azd/infra/modules/resources.bicep), and [azd/infra/modules/aca-dns.bicep](../azd/infra/modules/aca-dns.bicep).
+
+> **Known limitation — platform bug.** As of 2026-05-17 the internal Container Apps load balancer in this design returns `404 Container App is stopped or does not exist` for healthy replicas in centralus (and northeurope per [microsoft/azure-container-apps#1714](https://github.com/microsoft/azure-container-apps/issues/1714)). The bug affects `internal: true` Workload Profiles envs and is acknowledged by Microsoft. Two production-ready workarounds are documented as drop-in alternatives:
+> - [docs/architecture-option-a.md](architecture-option-a.md) — External env + `publicNetworkAccess: Disabled` + Private Endpoint (MS-documented fully-private pattern).
+> - [docs/architecture-option-b.md](architecture-option-b.md) — External env + per-app `ipSecurityRestrictions` allowlist of the VNet CIDR.
 
 ---
 
@@ -20,9 +24,9 @@ The architecture is implemented in [azd/infra/main.bicep](../azd/infra/main.bice
 
 | Resource | Type | Public access | Notes |
 |---|---|---|---|
-| `vnet-mcpreg-<suffix>` | Virtual Network (10.100.0.0/16) | n/a | Two subnets: `snet-aca` (10.100.0.0/23, delegated to `Microsoft.App/environments`), `snet-pe` (10.100.2.0/24) |
-| `cae-mcpreg-<suffix>` | Container Apps Environment | **Disabled** | `internal: true`, `infrastructureSubnetResourceId = snet-aca`, `publicNetworkAccess: Disabled`, `workloadProfiles: [Consumption]` |
-| `ca-mcpreg-<suffix>` | Container App (API) | **Internal only** | `ingressExternal: false`, FQDN `*.internal.<envDomain>.azurecontainerapps.io` |
+| `vnet-mcpreg-<suffix>` | Virtual Network (10.100.0.0/16) | n/a | Three subnets: `snet-aca` (10.100.0.0/23, delegated to `Microsoft.App/environments`), `snet-pe` (10.100.2.0/24), `snet-aci` (10.100.3.0/27, delegated to `Microsoft.ContainerInstance/containerGroups`) |
+| `cae-mcpreg-<suffix>` | Container Apps Environment | **Disabled** | `internal: true`, `infrastructureSubnetResourceId = snet-aca`, `publicNetworkAccess: Disabled`, `workloadProfiles: [Consumption]`. App ingress: `ingressTransport: 'http'`, `scaleSettings.minReplicas: 1` (keeps at least one warm replica so L7 routes are always registered). |
+| `ca-mcpreg-<suffix>` | Container App (API) | **Internal only** | `ingressExternal: false`, FQDN `ca-mcpreg-<suffix>.internal.<envDomain>` |
 | `ca-mcpreg-ui-<suffix>` | Container App (UI) | **Internal only** | Same as above |
 | `sql-mcpreg-<suffix>` | Azure SQL Server | **Enabled (firewall = empty)** | Private endpoint `sql-mcpreg-<suffix>-pe` in `snet-pe`. Public listener exists but rejects all clients unless a temporary firewall rule is added. |
 | `MCPRegistry` | SQL Database (Serverless GP_S_Gen5) | n/a | Auto-pause 60 min, 0.5–2 vCore |
@@ -30,6 +34,7 @@ The architecture is implemented in [azd/infra/main.bicep](../azd/infra/main.bice
 | `id-mcpreg-<suffix>` | User-Assigned Managed Identity | n/a | Used by both Container Apps for ACR pulls and SQL data-plane auth |
 | `log-mcpreg-<suffix>` | Log Analytics Workspace | n/a | Receives `appLogsConfiguration` from the env |
 | `privatelink.database.windows.net` | Private DNS Zone | n/a | Linked to the VNet; A record auto-bound to the SQL PE NIC |
+| `<envDomain>` (e.g. `happybush-ccbedd39.centralus.azurecontainerapps.io`) | Private DNS Zone (synthetic) | n/a | Built by [azd/infra/modules/aca-dns.bicep](../azd/infra/modules/aca-dns.bicep). Wildcard A records `*` and `*.internal` both → env `staticIp` (10.100.0.x). Linked to `vnet-mcpreg`. Required so in-VNet clients resolve `<app>.internal.<envDomain>` to the env's internal LB instead of falling through to public DNS. |
 
 ---
 
@@ -42,14 +47,18 @@ flowchart TB
             subgraph VNET["VNet vnet-mcpreg (10.100.0.0/16)"]
                 subgraph SNET_ACA["snet-aca (10.100.0.0/23)<br/>delegated: Microsoft.App/environments"]
                     CAE["Container Apps Environment<br/>cae-mcpreg<br/>internal: true<br/>publicAccess: Disabled<br/>staticIp: 10.100.0.x"]
-                    APP_API["Container App: ca-mcpreg<br/>ingressExternal: false"]
-                    APP_UI["Container App: ca-mcpreg-ui<br/>ingressExternal: false"]
+                    APP_API["Container App: ca-mcpreg<br/>ingressExternal: false<br/>transport: http, minReplicas: 1"]
+                    APP_UI["Container App: ca-mcpreg-ui<br/>ingressExternal: false<br/>transport: http, minReplicas: 1"]
                 end
                 subgraph SNET_PE["snet-pe (10.100.2.0/24)"]
                     PE_SQL["Private Endpoint<br/>sql-mcpreg-pe<br/>NIC: 10.100.2.x"]
                 end
+                subgraph SNET_ACI["snet-aci (10.100.3.0/27)<br/>delegated: Microsoft.ContainerInstance"]
+                    ACI["Ephemeral probe ACI<br/>(curl-test postdeploy hook)"]
+                end
             end
-            DNSZONE["Private DNS Zone<br/>privatelink.database.windows.net<br/>A: sql-mcpreg → 10.100.2.x"]
+            DNSZONE_SQL["Private DNS Zone<br/>privatelink.database.windows.net<br/>A: sql-mcpreg → 10.100.2.x"]
+            DNSZONE_ACA["Private DNS Zone (synthetic)<br/>&lt;envDomain&gt;.azurecontainerapps.io<br/>A: * → 10.100.0.x<br/>A: *.internal → 10.100.0.x"]
             SQL["Azure SQL Server<br/>sql-mcpreg<br/>publicAccess: Enabled<br/>firewall: empty<br/>azureADOnlyAuth: true"]
             SQLDB[("SQL Database<br/>MCPRegistry<br/>GP_S_Gen5 serverless")]
             ACR["Azure Container Registry<br/>crmcpreg (Basic, public)<br/>admin user: disabled"]
@@ -62,7 +71,8 @@ flowchart TB
     CAE -.hosts.-> APP_UI
     PE_SQL --tunnels to--> SQL
     SQL --contains--> SQLDB
-    DNSZONE -.linked to.-> VNET
+    DNSZONE_SQL -.linked to.-> VNET
+    DNSZONE_ACA -.linked to.-> VNET
     APP_API -.uses.-> MI
     APP_UI -.uses.-> MI
     CAE --logs to--> LAW
@@ -70,8 +80,8 @@ flowchart TB
     classDef sub fill:#e3f2fd,stroke:#1976d2
     classDef priv fill:#c8e6c9,stroke:#2e7d32
     classDef pub fill:#ffe0b2,stroke:#e65100
-    class SNET_ACA,SNET_PE,VNET sub
-    class CAE,APP_API,APP_UI,PE_SQL,DNSZONE priv
+    class SNET_ACA,SNET_PE,SNET_ACI,VNET sub
+    class CAE,APP_API,APP_UI,PE_SQL,DNSZONE_SQL,DNSZONE_ACA,ACI priv
     class SQL,ACR pub
 ```
 
@@ -88,6 +98,7 @@ sequenceDiagram
     autonumber
     participant Client as Client<br/>(in-VNet or peered VNet)
     participant DNS as Azure-provided DNS<br/>(168.63.129.16)
+    participant ZoneAca as Private DNS Zone<br/>&lt;envDomain&gt;<br/>(synthetic, wildcards)
     participant Env as Container Apps Env<br/>internal LB (staticIp)
     participant UI as ca-mcpreg-ui<br/>(Blazor Server)
     participant API as ca-mcpreg<br/>(REST API)
@@ -95,13 +106,18 @@ sequenceDiagram
     participant PE as SQL Private Endpoint<br/>(10.100.2.x)
     participant SQL as Azure SQL Database<br/>MCPRegistry
 
-    Client->>DNS: Resolve ca-mcpreg-ui.internal.<env>.azurecontainerapps.io
-    DNS-->>Client: returns env staticIp (10.100.0.x)
+    Client->>DNS: Resolve ca-mcpreg-ui.internal.<envDomain>
+    DNS->>ZoneAca: VNet-linked private zone hit<br/>(*.internal wildcard)
+    ZoneAca-->>DNS: A 10.100.0.x (env staticIp)
+    DNS-->>Client: 10.100.0.x
     Client->>Env: HTTPS :443
-    Env->>UI: route to UI replica
-    UI->>DNS: Resolve ca-mcpreg.internal.<env>.azurecontainerapps.io
-    DNS-->>UI: returns env staticIp (10.100.0.x)
-    UI->>API: HTTPS :443 internal call
+    Env->>UI: route by Host header to UI replica
+    UI->>DNS: Resolve ca-mcpreg.internal.<envDomain>
+    DNS->>ZoneAca: same zone hit
+    ZoneAca-->>DNS: A 10.100.0.x (same staticIp)
+    DNS-->>UI: 10.100.0.x
+    UI->>Env: HTTPS :443 internal call
+    Env->>API: route to API replica
     API->>DNS: Resolve sql-mcpreg.database.windows.net
     DNS->>ZoneSql: VNet-linked private zone hit
     ZoneSql-->>DNS: CNAME → A 10.100.2.x
@@ -115,8 +131,9 @@ sequenceDiagram
 
 Key points:
 - All hops stay inside the VNet. No traffic egresses to the internet (except outbound — see flow #5).
+- The env's internal FQDN `<app>.internal.<envDomain>` is **not** resolvable in public DNS — the synthetic private DNS zone created by [aca-dns.bicep](../azd/infra/modules/aca-dns.bicep) provides the wildcard `*.internal` A record that points every app FQDN at the env's internal LB `staticIp`.
 - DNS for the SQL FQDN resolves to the **private endpoint NIC**, not the public IP, because the `privatelink.database.windows.net` zone is linked to the VNet.
-- Inter-app calls (UI → API) use the env's internal name `*.internal.<envDomain>` — the env's load balancer routes by hostname.
+- Inter-app calls (UI → API) hit the env's internal LB by FQDN — the env routes by `Host` header to the right app.
 
 ---
 
@@ -254,8 +271,8 @@ The env does **not** block outbound. If outbound restriction is needed later, at
 | Source | API ingress | UI ingress | SQL data plane | ACR | Azure ARM (mgmt) |
 |---|---|---|---|---|---|
 | Public internet | ❌ blocked | ❌ blocked | ❌ rejected (firewall = empty) | ✅ public | ✅ public, AAD-auth |
-| Inside `vnet-mcpreg` (in-env replicas) | ✅ via internal LB | ✅ via internal LB | ✅ via PE | ✅ public + MI auth | n/a |
-| Peered VNet (when configured) | ✅ if env DNS zone is wired (see "Adding inbound access") | ✅ same | ✅ via PE (DNS zone link is auto-extended by network module) | ✅ public | ✅ |
+| Inside `vnet-mcpreg` (in-env replicas, ACI in `snet-aci`) | ✅ via internal LB (currently degraded — see platform bug callout at top) | ✅ via internal LB (same caveat) | ✅ via PE | ✅ public + MI auth | n/a |
+| Peered VNet (when configured) | ✅ if env DNS zone is also linked to the peer (see "Adding inbound access") | ✅ same | ✅ via PE (DNS zone link is auto-extended by network module) | ✅ public | ✅ |
 | Operator laptop | ❌ | ❌ | ✅ during postprovision script run only (temp /24 firewall rule) | ✅ public via az push | ✅ |
 
 ---
@@ -271,7 +288,13 @@ The lockdown ships with **no** public ingress path. To add reachability without 
    ```
    This adds a one-sided peering and auto-links the SQL private DNS zone to the peer. **You must manually create the reverse peering** in the peer VNet's resource group.
 
-2. **Create a private DNS zone for the env's `defaultDomain`** (e.g., `<unique>.<region>.azurecontainerapps.io`) in the peer VNet, with a wildcard A record pointing to the env's `staticIp` (visible in `azd env get-values` as part of the FQDN, or via `az containerapp env show`). Without this, peer clients can resolve the host but won't have a DNS path.
+2. **Link the synthetic ACA env private DNS zone to the peer VNet.** The local link is created automatically by [aca-dns.bicep](../azd/infra/modules/aca-dns.bicep) (`link-self`); the peer link is **not** — it's left manual because the peer's resource ID is only known at deploy time and may live in a different subscription. Either:
+   ```powershell
+   $zoneId = az network private-dns zone show -g <rg> -n <envDomain> --query id -o tsv
+   az network private-dns link vnet create -g <rg> -z <envDomain> -n peer-link `
+     --virtual-network <peerVnetResourceId> --registration-enabled false
+   ```
+   or extend `aca-dns.bicep` with a second conditional `virtualNetworkLinks` resource gated on `peerVnetResourceId` (same shape as the SQL `sqlDnsLinkPeer` in [network.bicep](../azd/infra/modules/network.bicep)).
 
 3. For human access from outside the peer, add **one** of:
    - Azure VPN Gateway / Bastion in the peer VNet
@@ -282,8 +305,10 @@ The lockdown ships with **no** public ingress path. To add reachability without 
 
 ## Known gaps and possible future hardening
 
+- **Microsoft platform bug blocks L7 routing in this design.** See the callout at the top of this document. As deployed today, in-VNet clients can resolve and TCP-connect to the env's internal LB, but the env L7 returns 404 for every request — including the official MS hello-world sample. Production deployments should pick [Option A](architecture-option-a.md) (PE-only) or [Option B](architecture-option-b.md) (external + IP allowlist) until [microsoft/azure-container-apps#1714](https://github.com/microsoft/azure-container-apps/issues/1714) is resolved.
 - **ACR is public.** Upgrade to Premium + private endpoint to remove the public attack surface (~$160/mo extra; also requires `azd` to run inside the VNet to push). Current mitigation: managed identity AcrPull only, admin user disabled.
 - **SQL public listener stays on** for operator convenience. To fully disable: set `publicNetworkAccess: 'Disabled'` and run all postprovision scripts from inside the VNet (e.g., a Container Apps Job, or a temporary VM/Bastion).
 - **No NSG on the subnets.** Outbound is wide open. Add an NSG to `snet-aca` if egress filtering is required.
 - **No diagnostic settings on every resource.** Only the Container Apps env logs to Log Analytics today. Wire up SQL audit, ACR diagnostic, and VNet flow logs as needed.
 - **Single region.** No DR/multi-region. Add a paired-region deployment if RTO/RPO requirements emerge.
+- **Synthetic env DNS zone is region-and-env-bound.** The zone name is the env's `defaultDomain`, which Azure generates at env-create time and which changes if the env is recreated. The Bicep handles this automatically via [aca-dns.bicep](../azd/infra/modules/aca-dns.bicep), but any externally-maintained DNS forwarding rules (e.g., on a corporate DNS) would need to be updated after an env recreate.
