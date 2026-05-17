@@ -98,7 +98,7 @@ sequenceDiagram
     autonumber
     participant Client as Client<br/>(in-VNet or peered VNet)
     participant DNS as Azure-provided DNS<br/>(168.63.129.16)
-    participant ZoneAca as Private DNS Zone<br/>&lt;envDomain&gt;<br/>(synthetic, wildcards)
+    participant ZoneAca as Private DNS Zone<br/>envDomain<br/>(synthetic, wildcards)
     participant Env as Container Apps Env<br/>internal LB (staticIp)
     participant UI as ca-mcpreg-ui<br/>(Blazor Server)
     participant API as ca-mcpreg<br/>(REST API)
