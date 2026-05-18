@@ -52,11 +52,13 @@ properties:
   containers:
     - name: curl
       properties:
-        image: curlimages/curl:latest
+        # MSCR-hosted to avoid Docker Hub anonymous-pull rate limits that hit
+        # `curlimages/curl:latest` in CI / repeat runs.
+        image: mcr.microsoft.com/azure-cli:latest
         resources:
           requests:
             cpu: 0.5
-            memoryInGB: 0.5
+            memoryInGB: 1.0
         command:
           - sh
           - -c
@@ -68,11 +70,11 @@ properties:
             echo '=== UI BODY https://$uiFqdn/ (first 400 bytes) ==='
             curl -k -sS --max-time 30 https://$uiFqdn/ | head -c 400
             echo ''
-            echo '=== API HEAD https://$apiFqdn/v0/servers ==='
-            curl -k -sS -I --max-time 30 https://$apiFqdn/v0/servers
+            echo '=== API HEAD https://$apiFqdn/v0.1/servers ==='
+            curl -k -sS -I --max-time 30 https://$apiFqdn/v0.1/servers
             echo ''
-            echo '=== API BODY https://$apiFqdn/v0/servers (first 400 bytes) ==='
-            curl -k -sS --max-time 30 https://$apiFqdn/v0/servers | head -c 400
+            echo '=== API BODY https://$apiFqdn/v0.1/servers (first 400 bytes) ==='
+            curl -k -sS --max-time 30 https://$apiFqdn/v0.1/servers | head -c 400
             echo ''
             echo '=== DONE ==='
 type: Microsoft.ContainerInstance/containerGroups
