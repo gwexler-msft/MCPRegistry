@@ -204,7 +204,7 @@ sequenceDiagram
     participant SQL as Azure SQL DB
 
     Dev->>AAD: 1. acquireToken scopes=api://[apiAppId]/mcp.access
-    Note over Dev,AAD: Interactive on first run (broker / browser); silent thereafter
+    Note over Dev,AAD: Interactive on first run (broker / browser) then silent thereafter
     AAD-->>Dev: 2. access_token v2 (aud=apiAppId, scp=mcp.access, groups=...)
 
     Dev->>DNS: 3. Resolve ca-mcpreg.[envDomain]
