@@ -195,27 +195,27 @@ The MCP client is a public OAuth caller. It uses MSAL (or any OAuth2 client) to 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Dev as VS Code<br/>(MCP client)
+    participant Dev as VS Code (MCP client)
     participant AAD as Microsoft Entra ID
     participant DNS as Public DNS
-    participant ENV as ACA env public ingress<br/>(envoy)
-    participant API as ca-mcpreg<br/>JwtBearer + controllers
-    participant ZoneSql as privatelink.database<br/>.windows.net
+    participant ENV as ACA env public ingress (envoy)
+    participant API as ca-mcpreg (JwtBearer + controllers)
+    participant ZoneSql as privatelink.database.windows.net
     participant SQL as Azure SQL DB
 
-    Dev->>AAD: 1. acquireToken(<br/>scopes=[api://<apiAppId>/mcp.access])
-    Note over Dev,AAD: Interactive on first run<br/>(broker / browser); silent thereafter
-    AAD-->>Dev: 2. access_token (v2)<br/>aud=<apiAppId>, scp=mcp.access,<br/>groups=[...]
+    Dev->>AAD: 1. acquireToken scopes=api://[apiAppId]/mcp.access
+    Note over Dev,AAD: Interactive on first run (broker / browser); silent thereafter
+    AAD-->>Dev: 2. access_token v2 (aud=apiAppId, scp=mcp.access, groups=...)
 
-    Dev->>DNS: 3. Resolve ca-mcpreg.<envDomain>
+    Dev->>DNS: 3. Resolve ca-mcpreg.[envDomain]
     DNS-->>Dev: 4. public IP of env ingress
 
     Dev->>ENV: 5. TLS handshake (envoy fronts)
-    Dev->>ENV: 6. HTTPS GET /v0.1/servers<br/>Authorization: Bearer <token>
-    ENV->>API: 7. forward request (XForwarded-* set)
-    API->>API: 8. UseForwardedHeaders → scheme=https
-    API->>API: 9. JwtBearer: fetch JWKS (cached),<br/>validate signature, audience,<br/>issuer, expiry
-    API->>API: 10. RequireReader policy:<br/>RequireAuthenticatedUser → pass
+    Dev->>ENV: 6. HTTPS GET /v0.1/servers with Authorization Bearer token
+    ENV->>API: 7. forward request (X-Forwarded-* set)
+    API->>API: 8. UseForwardedHeaders sets scheme=https
+    API->>API: 9. JwtBearer fetch JWKS (cached) and validate signature, audience, issuer, expiry
+    API->>API: 10. RequireReader policy - RequireAuthenticatedUser passes
     API->>ZoneSql: 11. Resolve sql-mcpreg.database.windows.net
     ZoneSql-->>API: 12. private IP via SQL PE
     API->>SQL: 13. SELECT ... (MI token, Proxy conn)
@@ -242,36 +242,36 @@ sequenceDiagram
     participant Admin as Admin browser
     participant DNS as Public DNS
     participant UIENV as ACA env ingress
-    participant UI as ca-mcpreg-ui<br/>(Microsoft.Identity.Web + Blazor)
+    participant UI as ca-mcpreg-ui (Microsoft.Identity.Web + Blazor)
     participant AAD as Microsoft Entra ID
     participant API as ca-mcpreg
 
-    Admin->>DNS: 1. Resolve ca-mcpreg-ui.<envDomain>
+    Admin->>DNS: 1. Resolve ca-mcpreg-ui.[envDomain]
     DNS-->>Admin: 2. public IP of env ingress
-    Admin->>UIENV: 3. HTTPS GET / (no cookie)
+    Admin->>UIENV: 3. HTTPS GET / with no cookie
     UIENV->>UI: 4. forward
-    UI->>UI: 5. UseForwardedHeaders →<br/>request scheme = https
-    UI-->>Admin: 6. 302 → AAD /authorize<br/>redirect_uri=https://<ui>/signin-oidc<br/>scope=openid profile mcp.access offline_access
+    UI->>UI: 5. UseForwardedHeaders sets request scheme to https
+    UI-->>Admin: 6. 302 to AAD /authorize - redirect_uri=https://[ui]/signin-oidc, scope=openid profile mcp.access offline_access
     Admin->>AAD: 7. login + consent (one-time)
-    AAD-->>Admin: 8. 302 → /signin-oidc?code=...
+    AAD-->>Admin: 8. 302 to /signin-oidc?code=...
     Admin->>UI: 9. GET /signin-oidc?code=...
-    UI->>AAD: 10. code → tokens<br/>(client_id + client secret)
-    AAD-->>UI: 11. id_token + access_token<br/>+ refresh_token
-    UI->>UI: 12. issue auth cookie<br/>(HttpOnly, Secure, SameSite=Lax)<br/>MSAL writes AT to in-memory cache
-    UI-->>Admin: 13. 302 → originally-requested page
+    UI->>AAD: 10. code to tokens with client_id + client secret
+    AAD-->>UI: 11. id_token + access_token + refresh_token
+    UI->>UI: 12. issue auth cookie HttpOnly Secure SameSite=Lax - MSAL writes AT to in-memory cache
+    UI-->>Admin: 13. 302 to originally-requested page
 
-    Admin->>UI: 14. GET /admin/servers (with cookie)
-    UI->>UI: 15. Razor component runs in circuit;<br/>checks IsAdmin (groups claim)
-    Note over UI: If not admin → render 'no access'
+    Admin->>UI: 14. GET /admin/servers with cookie
+    UI->>UI: 15. Razor component runs in circuit and checks IsAdmin via groups claim
+    Note over UI: If not admin then render 'no access'
     UI-->>Admin: 16. render page
 
     Admin->>UI: 17. submit POST add server
-    UI->>UI: 18. McpRegistryClient.AddServersAsync()<br/>resolves token via<br/>ITokenAcquisition + AuthStateProvider
-    UI->>AAD: 19. silent token from MSAL cache<br/>(refresh if expired)
-    AAD-->>UI: 20. access_token (aud=<apiAppId>)
-    UI->>API: 21. POST /v0.1/servers<br/>Authorization: Bearer <token><br/>(over public HTTPS — same env, public path)
+    UI->>UI: 18. McpRegistryClient.AddServersAsync resolves token via ITokenAcquisition + AuthStateProvider
+    UI->>AAD: 19. silent token from MSAL cache (refresh if expired)
+    AAD-->>UI: 20. access_token with aud=[apiAppId]
+    UI->>API: 21. POST /v0.1/servers Authorization Bearer token over public HTTPS - same env, public path
     API->>API: 22. JwtBearer validates token
-    API->>API: 23. RequireAdmin policy:<br/>RequireAuthenticatedUser +<br/>RequireClaim("groups", <adminGroupId>)<br/>→ pass
+    API->>API: 23. RequireAdmin policy - RequireAuthenticatedUser + RequireClaim groups=[adminGroupId] - passes
     API-->>UI: 24. 201 Created
     UI-->>Admin: 25. render success
 ```
