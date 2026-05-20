@@ -1,7 +1,9 @@
 @page "/servers/{*ServerName}"
+@attribute [Authorize]
 @using MCPRegistry.UI.Services
 @using MCPRegistry.UI.Models
 @inject McpRegistryClient Api
+@inject EasyAuthUser User
 @rendermode InteractiveServer
 
 <PageTitle>@ServerName — Versions</PageTitle>
@@ -54,7 +56,10 @@ else
                     <td>
                         @if (!item.IsDeleted)
                         {
-                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(item.Server.Version)">Delete</button>
+                            @if (User.IsAdmin)
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(item.Server.Version)">Delete</button>
+                            }
                         }
                     </td>
                 </tr>
@@ -95,6 +100,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        await User.GetPrincipalAsync();
         await LoadVersions();
     }
 

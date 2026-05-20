@@ -1,0 +1,46 @@
+@inject MCPRegistry.UI.Services.EasyAuthUser SignedInUser
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@(ViewData["Title"] ?? "MCP Registry")</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/app.css" />
+    <link rel="icon" type="image/png" href="~/favicon.png" />
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" asp-page="/Index">MCP Registry</a>
+            <div class="collapse navbar-collapse">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" asp-page="/Index">Servers</a>
+                    </li>
+                    @if (SignedInUser.IsAdmin)
+                    {
+                        <li class="nav-item">
+                            <a class="nav-link" asp-page="/Servers/Add">Add Server</a>
+                        </li>
+                    }
+                </ul>
+                <ul class="navbar-nav">
+                    @if (SignedInUser.IsAuthenticated)
+                    {
+                        <li class="nav-item">
+                            <span class="navbar-text me-3">@SignedInUser.DisplayName@(SignedInUser.IsAdmin ? " (admin)" : "")</span>
+                        </li>
+                        <li class="nav-item">
+                            <a class="btn btn-outline-light btn-sm" href="/MicrosoftIdentity/Account/SignOut">Sign out</a>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+    </nav>
+    <div class="container">
+        @RenderBody()
+    </div>
+</body>
+</html>

@@ -1,0 +1,270 @@
+@page "/servers/add"
+@model AddModel
+@{
+    ViewData["Title"] = "Add Server";
+}
+
+<h1>Add Server</h1>
+
+@if (!Model.IsAdmin)
+{
+    <div class="alert alert-warning">
+        <h4>Admin access required</h4>
+        <p>You're signed in as <strong>@(Model.DisplayName ?? "user")</strong>, but adding servers is restricted to members of the admin group.</p>
+        <a class="btn btn-secondary" asp-page="/Index">Back to servers</a>
+    </div>
+}
+else
+{
+    @if (Model.Templates.Count > 0)
+    {
+        <div class="card mb-4 border-primary">
+            <div class="card-body">
+                <h5 class="card-title">Quick Start — load a template</h5>
+                <p class="card-text text-muted">Click a template to pre-fill the form, then edit and submit.</p>
+                <form method="get" class="d-flex flex-wrap gap-2">
+                    <button type="submit" name="template" value="" class="btn btn-outline-secondary">Start from scratch</button>
+                    @foreach (var t in Model.Templates)
+                    {
+                        <button type="submit" name="template" value="@t.Name" class="btn btn-outline-primary">
+                            @(t.Title ?? t.Name) <span class="badge bg-secondary">v@(t.Version)</span>
+                        </button>
+                    }
+                </form>
+            </div>
+        </div>
+    }
+
+    @if (Model.ErrorMessage is not null)
+    {
+        <div class="alert alert-danger">@Model.ErrorMessage</div>
+    }
+
+    <form method="post">
+        <h5>Basic Information</h5>
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label class="form-label">Server Name <span class="text-danger">*</span></label>
+                <input class="form-control" name="Input.Name" value="@Model.Input.Name" placeholder="com.example/my-mcp-server" required />
+                <div class="form-text">Format: <code>domain/name</code></div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Version <span class="text-danger">*</span></label>
+                <input class="form-control" name="Input.Version" value="@Model.Input.Version" placeholder="1.0.0" required />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Title</label>
+                <input class="form-control" name="Input.Title" value="@Model.Input.Title" placeholder="My MCP Server" />
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Description</label>
+            <textarea class="form-control" name="Input.Description" rows="2" placeholder="What does this MCP server do?">@Model.Input.Description</textarea>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Website URL</label>
+            <input class="form-control" name="Input.WebsiteUrl" value="@Model.Input.WebsiteUrl" placeholder="https://github.com/..." />
+        </div>
+
+        <hr />
+        <h5>Repository</h5>
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label class="form-label">Repository URL</label>
+                <input class="form-control" name="Input.RepoUrl" value="@Model.Input.RepoUrl" placeholder="https://github.com/org/repo" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Source</label>
+                <select class="form-select" name="Input.RepoSource">
+                    <option value="">—</option>
+                    <option value="github" selected="@(Model.Input.RepoSource == "github")">GitHub</option>
+                    <option value="gitlab" selected="@(Model.Input.RepoSource == "gitlab")">GitLab</option>
+                    <option value="bitbucket" selected="@(Model.Input.RepoSource == "bitbucket")">Bitbucket</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Subfolder</label>
+                <input class="form-control" name="Input.RepoSubfolder" value="@Model.Input.RepoSubfolder" placeholder="servers/MyServer" />
+            </div>
+        </div>
+
+        <hr />
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">Packages</h5>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addPackage()">+ Add Package</button>
+        </div>
+        <div id="packages-container">
+            @for (int i = 0; i < Model.Input.Packages.Count; i++)
+            {
+                var p = Model.Input.Packages[i];
+                <div class="card mb-2 package-row">
+                    <div class="card-body py-2">
+                        <div class="row g-2">
+                            <div class="col-md-2">
+                                <label class="form-label form-label-sm">Registry</label>
+                                <select class="form-select form-select-sm" name="Input.Packages[@i].RegistryType">
+                                    <option value="npm" selected="@(p.RegistryType == "npm")">npm</option>
+                                    <option value="nuget" selected="@(p.RegistryType == "nuget")">NuGet</option>
+                                    <option value="pypi" selected="@(p.RegistryType == "pypi")">PyPI</option>
+                                    <option value="docker" selected="@(p.RegistryType == "docker")">Docker</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label form-label-sm">Identifier</label>
+                                <input class="form-control form-control-sm" name="Input.Packages[@i].Identifier" value="@p.Identifier" placeholder="@@azure/mcp" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label form-label-sm">Version</label>
+                                <input class="form-control form-control-sm" name="Input.Packages[@i].Version" value="@p.Version" placeholder="1.0.0" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label form-label-sm">Transport</label>
+                                <select class="form-select form-select-sm" name="Input.Packages[@i].TransportType">
+                                    <option value="stdio" selected="@(p.TransportType == "stdio")">stdio</option>
+                                    <option value="streamable-http" selected="@(p.TransportType == "streamable-http")">streamable-http</option>
+                                    <option value="sse" selected="@(p.TransportType == "sse")">sse</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label form-label-sm">Runtime</label>
+                                <input class="form-control form-control-sm" name="Input.Packages[@i].RuntimeHint" value="@p.RuntimeHint" placeholder="npx" />
+                            </div>
+                            <div class="col-md-1 d-flex align-items-end">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.package-row').remove(); reindexPackages();">✕</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <hr />
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">Remotes</h5>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addRemote()">+ Add Remote</button>
+        </div>
+        <div id="remotes-container">
+            @for (int i = 0; i < Model.Input.Remotes.Count; i++)
+            {
+                var r = Model.Input.Remotes[i];
+                <div class="card mb-2 remote-row">
+                    <div class="card-body py-2">
+                        <div class="row g-2">
+                            <div class="col-md-3">
+                                <label class="form-label form-label-sm">Transport Type</label>
+                                <select class="form-select form-select-sm" name="Input.Remotes[@i].Type">
+                                    <option value="streamable-http" selected="@(r.Type == "streamable-http")">streamable-http</option>
+                                    <option value="sse" selected="@(r.Type == "sse")">sse</option>
+                                </select>
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label form-label-sm">URL</label>
+                                <input class="form-control form-control-sm" name="Input.Remotes[@i].Url" value="@r.Url" placeholder="https://api.example.com/mcp/" />
+                            </div>
+                            <div class="col-md-1 d-flex align-items-end">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.remote-row').remove(); reindexRemotes();">✕</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="d-flex gap-2 mt-3">
+            <button type="submit" class="btn btn-primary">Add Server</button>
+            <a class="btn btn-secondary" asp-page="/Index">Cancel</a>
+        </div>
+    </form>
+
+    <script>
+        function addPackage() {
+            const container = document.getElementById('packages-container');
+            const idx = container.querySelectorAll('.package-row').length;
+            const html = `
+                <div class="card mb-2 package-row">
+                    <div class="card-body py-2">
+                        <div class="row g-2">
+                            <div class="col-md-2">
+                                <label class="form-label form-label-sm">Registry</label>
+                                <select class="form-select form-select-sm" name="Input.Packages[${idx}].RegistryType">
+                                    <option value="npm">npm</option>
+                                    <option value="nuget">NuGet</option>
+                                    <option value="pypi">PyPI</option>
+                                    <option value="docker">Docker</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label form-label-sm">Identifier</label>
+                                <input class="form-control form-control-sm" name="Input.Packages[${idx}].Identifier" placeholder="@@azure/mcp" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label form-label-sm">Version</label>
+                                <input class="form-control form-control-sm" name="Input.Packages[${idx}].Version" placeholder="1.0.0" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label form-label-sm">Transport</label>
+                                <select class="form-select form-select-sm" name="Input.Packages[${idx}].TransportType">
+                                    <option value="stdio">stdio</option>
+                                    <option value="streamable-http">streamable-http</option>
+                                    <option value="sse">sse</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label form-label-sm">Runtime</label>
+                                <input class="form-control form-control-sm" name="Input.Packages[${idx}].RuntimeHint" placeholder="npx" />
+                            </div>
+                            <div class="col-md-1 d-flex align-items-end">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.package-row').remove(); reindexPackages();">✕</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+            container.insertAdjacentHTML('beforeend', html);
+        }
+
+        function addRemote() {
+            const container = document.getElementById('remotes-container');
+            const idx = container.querySelectorAll('.remote-row').length;
+            const html = `
+                <div class="card mb-2 remote-row">
+                    <div class="card-body py-2">
+                        <div class="row g-2">
+                            <div class="col-md-3">
+                                <label class="form-label form-label-sm">Transport Type</label>
+                                <select class="form-select form-select-sm" name="Input.Remotes[${idx}].Type">
+                                    <option value="streamable-http">streamable-http</option>
+                                    <option value="sse">sse</option>
+                                </select>
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label form-label-sm">URL</label>
+                                <input class="form-control form-control-sm" name="Input.Remotes[${idx}].Url" placeholder="https://api.example.com/mcp/" />
+                            </div>
+                            <div class="col-md-1 d-flex align-items-end">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.remote-row').remove(); reindexRemotes();">✕</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+            container.insertAdjacentHTML('beforeend', html);
+        }
+
+        function reindexPackages() {
+            document.querySelectorAll('#packages-container .package-row').forEach((row, idx) => {
+                row.querySelectorAll('[name]').forEach(el => {
+                    el.name = el.name.replace(/Input\.Packages\[\d+\]/, `Input.Packages[${idx}]`);
+                });
+            });
+        }
+
+        function reindexRemotes() {
+            document.querySelectorAll('#remotes-container .remote-row').forEach((row, idx) => {
+                row.querySelectorAll('[name]').forEach(el => {
+                    el.name = el.name.replace(/Input\.Remotes\[\d+\]/, `Input.Remotes[${idx}]`);
+                });
+            });
+        }
+    </script>
+}

@@ -1,4 +1,5 @@
 ﻿@page "/"
+@attribute [Authorize]
 @using MCPRegistry.UI.Services
 @using MCPRegistry.UI.Models
 @inject McpRegistryClient Api
@@ -166,5 +167,3 @@ else
         return text.Length <= maxLength ? text : text[..maxLength] + "...";
     }
 }
-
-Welcome to your new app.

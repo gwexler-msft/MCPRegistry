@@ -8,13 +8,14 @@
 4. [Local Development Setup](#local-development-setup)
 5. [Building & Running Locally](#building--running-locally)
 6. [API Endpoints](#api-endpoints)
-7. [Azure Deployment](#azure-deployment)
-8. [Post-Deployment: Schema & Data](#post-deployment-schema--data)
-9. [Redeployment & Updates](#redeployment--updates)
-10. [Troubleshooting](#troubleshooting)
-11. [Key Design Decisions](#key-design-decisions)
-12. [MCP Registry Specification Notes](#mcp-registry-specification-notes)
-13. [Production Hardening](#production-hardening)
+7. [Calling the API as a Client](#calling-the-api-as-a-client)
+8. [Azure Deployment](#azure-deployment)
+9. [Post-Deployment: Schema & Data](#post-deployment-schema--data)
+10. [Redeployment & Updates](#redeployment--updates)
+11. [Troubleshooting](#troubleshooting)
+12. [Key Design Decisions](#key-design-decisions)
+13. [MCP Registry Specification Notes](#mcp-registry-specification-notes)
+14. [Production Hardening](#production-hardening)
 
 ---
 
@@ -243,6 +244,190 @@ Content-Type: application/json
   }
 ]
 ```
+
+---
+
+## Calling the API as a Client
+
+Read endpoints are **anonymous** (MCP Registry v0.1 spec). Write endpoints require a Microsoft Entra ID bearer token validated by `Microsoft.Identity.Web.AddMicrosoftIdentityWebApi`. (Architecture: [Option D](architecture-option-d.md).)
+
+### What you need
+
+For anonymous reads, only `API_URL` is required. For writes, capture the auth values too (the azd preprovision hook writes them all into the env):
+
+```powershell
+azd env get-values | Select-String 'AZURE_TENANT_ID|AZURE_API_APP_CLIENT_ID|AZURE_ADMIN_GROUP_ID|API_URL'
+```
+
+| Variable | Used as |
+|---|---|
+| `API_URL` | Base URL — `https://ca-mcpreg-<suffix>.<env-default-domain>` |
+| `AZURE_TENANT_ID` | Authority — `https://login.microsoftonline.com/<tenant>/v2.0` (writes only) |
+| `AZURE_API_APP_CLIENT_ID` | Audience / resource — the API app registration that exposes `mcp.access` (writes only) |
+| `AZURE_ADMIN_GROUP_ID` | Object ID of the group whose members can call write endpoints |
+
+### Authorization rules
+
+| Endpoint | Required claim |
+|---|---|
+| `GET /v0.1/servers` (+ variants) | None — anonymous |
+| `POST /v0.1/servers` | Token must include `groups` claim containing `AZURE_ADMIN_GROUP_ID` |
+| `DELETE /v0.1/servers/{name}/versions/{version}` | Same as POST |
+
+Anonymous write → `401`. Authenticated but missing admin group on a write → `403`.
+
+### Acquiring a token interactively (Azure CLI)
+
+The first time you call the API from `az`, the CLI needs admin consent for the scope. Do this once per user/tenant:
+
+```powershell
+$tenant   = $(azd env get-value AZURE_TENANT_ID)
+$apiAppId = $(azd env get-value AZURE_API_APP_CLIENT_ID)
+
+az login --tenant $tenant --scope "api://$apiAppId/.default"
+```
+
+After that, get a token with:
+
+```powershell
+$token = az account get-access-token --resource "api://$apiAppId" --query accessToken -o tsv
+```
+
+### Acquiring a token from .NET (MSAL public client)
+
+For a console app or VS Code extension running on a user's machine:
+
+```csharp
+using Microsoft.Identity.Client;
+
+var app = PublicClientApplicationBuilder
+    .Create("<your-public-client-app-id>")        // separate AAD app reg, "Mobile and desktop" platform
+    .WithTenantId("<AZURE_TENANT_ID>")
+    .WithDefaultRedirectUri()                       // http://localhost loopback
+    .Build();
+
+var scopes = new[] { "api://<AZURE_API_APP_CLIENT_ID>/mcp.access" };
+
+AuthenticationResult result;
+try
+{
+    var accounts = await app.GetAccountsAsync();
+    result = await app.AcquireTokenSilent(scopes, accounts.FirstOrDefault())
+                      .ExecuteAsync();
+}
+catch (MsalUiRequiredException)
+{
+    result = await app.AcquireTokenInteractive(scopes).ExecuteAsync();
+}
+
+var bearer = result.AccessToken;
+```
+
+The public-client app reg needs `requiredResourceAccess` for `api://<AZURE_API_APP_CLIENT_ID>/mcp.access` and admin consent granted in the tenant. The provisioned `mcp-registry-ui` app reg is *not* a public client — it is a confidential web app — so you cannot reuse its client ID here.
+
+### Acquiring a token from Node / JavaScript (MSAL Node)
+
+```javascript
+const { PublicClientApplication } = require('@azure/msal-node');
+
+const pca = new PublicClientApplication({
+  auth: {
+    clientId: '<public-client-app-id>',
+    authority: 'https://login.microsoftonline.com/<AZURE_TENANT_ID>',
+  },
+});
+
+const scopes = ['api://<AZURE_API_APP_CLIENT_ID>/mcp.access'];
+// device-code flow is simplest for first run:
+const result = await pca.acquireTokenByDeviceCode({
+  scopes,
+  deviceCodeCallback: r => console.log(r.message),
+});
+const bearer = result.accessToken;
+```
+
+### Example: list servers (curl / PowerShell)
+
+```powershell
+$apiUrl   = $(azd env get-value API_URL)
+$apiAppId = $(azd env get-value AZURE_API_APP_CLIENT_ID)
+$token    = az account get-access-token --resource "api://$apiAppId" --query accessToken -o tsv
+
+Invoke-RestMethod -Uri "$apiUrl/v0.1/servers" -Headers @{ Authorization = "Bearer $token" }
+```
+
+Or with curl:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" "$API_URL/v0.1/servers"
+```
+
+### Pointing VS Code at the registry
+
+This registry implements the [MCP Registry v0.1 specification](https://registry.modelcontextprotocol.io/docs), so `GET /v0.1/servers*` is **anonymous** and works with any spec-compliant client. Write endpoints (`POST` / `DELETE`) still require an admin token — see [Authentication & Authorization](#authentication--authorization).
+
+#### Option 0 — GitHub Copilot Enterprise org policy (recommended)
+
+GitHub Copilot Enterprise admins can pin every Copilot client in the org to a single MCP registry. Once configured, end users do **not** edit `mcp.json` themselves — Copilot pulls the server list from your registry on their behalf.
+
+1. Open <https://github.com/organizations/&lt;your-org&gt;/settings/copilot/policies>.
+2. Under **MCP servers in Copilot**, set the policy to **Enabled**.
+3. In **MCP registry URL (optional) [Preview]**, paste your registry base URL (the value of `azd env get-value API_URL`, e.g. `https://ca-mcpreg-xxx.<env>.azurecontainerapps.io`). It must be a [spec-compliant MCP registry](https://registry.modelcontextprotocol.io/docs) — this implementation is.
+4. Under **Restrict MCP access to registry servers [Preview]**, choose **Registry only** to block any MCP server not published in your registry.
+
+That's it. GitHub Copilot will call `GET <API_URL>/v0.1/servers` anonymously from its own backend; no per-user token plumbing is required.
+
+> **Network reachability:** GitHub Copilot's backend runs in GitHub-owned infrastructure, **not** inside your VNet. The default deployment in this repo sets `publicNetworkAccess: 'Disabled'` on the Container Apps environment, which makes the registry reachable **only** through the env's private endpoint inside the VNet (and any peer VNets linked to its private DNS zone). For GitHub Copilot's "MCP registry URL" policy to work, the URL you paste must be reachable from the public internet. Pick one of:
+> - Set `publicNetworkAccess: 'Enabled'` on the `Microsoft.App/managedEnvironments` resource (`azd/infra/modules/resources.bicep`) and `ingressExternal: true` on the API container app. Anonymous reads are intentional per the MCP Registry spec; writes still require an admin token, so the security posture is unchanged.
+> - Or front the registry with **Azure API Management** / **Azure Front Door** with a public hostname, route to the private API, and (optionally) IP-allowlist the [GitHub Actions `hookshot` IP ranges](https://api.github.com/meta) at the edge.
+>
+> Keeping the data plane private + exposing only `GET /v0.1/servers*` through a public edge is the most defensible posture.
+
+#### Option 1 — Manual workspace mcp.json
+
+Useful for one-off testing or when you need a server that's not (yet) in the registry.
+
+1. Browse the registry (UI or `curl $API_URL/v0.1/servers`) and pick the server you want.
+2. Translate its `packages[]` or `remotes[]` entry into a VS Code `mcp.json` entry by hand. See the [MCP configuration reference](https://code.visualstudio.com/docs/copilot/reference/mcp-configuration) for the field schema.
+3. Save to `.vscode/mcp.json` (workspace) or run `MCP: Open User Configuration` (user profile).
+
+#### Option 2 — Generate `mcp.json` from the registry (`scripts/Export-McpJson.ps1`)
+
+A PowerShell helper that pulls every server from the registry and emits a VS Code-compatible `mcp.json`. It maps `remotes[]` to `{ "type": "http" \| "sse", "url": ... }` and `packages[]` to `{ "type": "stdio", "command": "npx" \| "docker" \| "uvx", ... }`. Since reads are anonymous, no `az login` is required.
+
+```powershell
+# Run from the repo root — auto-reads ApiUrl from the azd env
+./scripts/Export-McpJson.ps1
+
+# Or write to your user-profile mcp.json, keep entries that aren't in the registry
+./scripts/Export-McpJson.ps1 `
+    -OutputPath "$env:APPDATA/Code/User/mcp.json" `
+    -Merge
+```
+
+Reload VS Code (or run `MCP: List Servers`) — the servers from your registry appear in the Extensions view under `MCP SERVERS - INSTALLED`. VS Code prompts to trust each one on first start.
+
+Re-run the script whenever the registry catalog changes.
+
+#### Option 3 — Browse-and-install from the UI (manual copy)
+
+Open the management UI in a browser, find the server you want, and copy the suggested `mcp.json` snippet from its detail page into your `.vscode/mcp.json`. *(Snippet rendering on detail pages is a future enhancement — see [Known gaps](architecture-option-d.md#known-gaps--future-hardening).)*
+
+### Example: workload (no user) calling the API
+
+For anonymous reads you can call `GET /v0.1/servers*` directly — no token, no app registration. The remainder of this section applies only to **writes** (publishing servers, deleting versions) which require an admin token:
+
+1. Add an **app role** (not a delegated scope) named `Mcp.Admin` to `mcp-registry-api`.
+2. Assign the role to the workload's SPN/MI from the API app reg's *Roles and administrators* blade, and add the same identity to the admin AAD group whose object ID is wired into `RequireAdmin`.
+3. Acquire a token with the client-credentials flow:
+
+   ```powershell
+   $token = az account get-access-token --resource "api://$apiAppId" --tenant $tenant --query accessToken -o tsv
+   ```
+
+   when running as the workload identity (e.g., from a Container App with `AZURE_CLIENT_ID` pointing to the user-assigned MI).
+
+The `RequireAdmin` policy checks `RequireAuthenticatedUser()` plus a `groups` claim matching the configured admin group object ID.
 
 ---
 

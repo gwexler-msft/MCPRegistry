@@ -36,6 +36,30 @@ if (-not $token) {
     exit 1
 }
 
+# When PNA=Disabled (often enforced by Azure Policy), public-path connection
+# attempts return "Deny Public Network Access is set to Yes" regardless of
+# firewall rules. Try a best-effort toggle to Enabled; if Policy blocks the
+# toggle, skip the public-path grant with clear operator instructions
+# rather than failing the azd pipeline.
+$pnaState = az sql server show --resource-group $resourceGroup --name $sqlServer --query publicNetworkAccess -o tsv 2>$null
+$pnaRestoreNeeded = $false
+if ($pnaState -eq 'Disabled') {
+    Write-Host "SQL server has publicNetworkAccess=Disabled; attempting temporary toggle to Enabled..."
+    az sql server update --resource-group $resourceGroup --name $sqlServer --enable-public-network true --output none 2>$null
+    $pnaState = az sql server show --resource-group $resourceGroup --name $sqlServer --query publicNetworkAccess -o tsv 2>$null
+    if ($pnaState -eq 'Enabled') {
+        $pnaRestoreNeeded = $true
+        Write-Host "PNA toggled to Enabled for the duration of the grant."
+    }
+    else {
+        Write-Warning "Unable to enable public network access on $sqlServer (likely blocked by Azure Policy)."
+        Write-Warning "Skipping data-plane grant. To grant manually, run this script from a host with private-endpoint access (in-VNet ACI, VPN, or jump box):"
+        Write-Warning "  ./scripts/grant-sql-access.ps1"
+        Write-Warning "Or temporarily exempt the server from the Policy and rerun."
+        exit 0
+    }
+}
+
 # Add temporary firewall rule and set Proxy connection policy
 $myIp = (Invoke-RestMethod -Uri "https://api.ipify.org" -TimeoutSec 10)
 $firewallRuleName = "azd-grant-$($myIp.Replace('.', '-'))"
@@ -111,6 +135,10 @@ az sql server conn-policy update --server $sqlServer --resource-group $resourceG
 az sql server firewall-rule delete --resource-group $resourceGroup --server $sqlServer --name $firewallRuleName --output none 2>$null
 if ($probeRuleName) {
     az sql server firewall-rule delete --resource-group $resourceGroup --server $sqlServer --name $probeRuleName --output none 2>$null
+}
+if ($pnaRestoreNeeded) {
+    Write-Host "Reverting publicNetworkAccess to Disabled..."
+    az sql server update --resource-group $resourceGroup --name $sqlServer --enable-public-network false --output none 2>$null
 }
 
 Write-Host "SQL data-plane access granted successfully."

@@ -1,12 +1,25 @@
 ﻿@page "/servers/add"
+@attribute [Authorize]
 @using MCPRegistry.UI.Services
 @using MCPRegistry.UI.Models
 @inject McpRegistryClient Api
 @inject ServerTemplateService Templates
 @inject NavigationManager Nav
+@inject EasyAuthUser User
 @rendermode InteractiveServer
 
 <PageTitle>Add Server</PageTitle>
+
+@if (!User.IsAdmin)
+{
+    <div class="alert alert-warning">
+        <h4>Admin access required</h4>
+        <p>You're signed in as <strong>@(User.DisplayName ?? "user")</strong>, but adding servers is restricted to members of the admin group. Ask an administrator to add you, then sign out and back in to refresh your group membership.</p>
+        <a class="btn btn-secondary" href="/">Back to servers</a>
+    </div>
+}
+else
+{
 
 <h1>Add Server</h1>
 
@@ -184,6 +197,8 @@
     </div>
 </div>
 
+}
+
 @code {
     private ServerDetail server = new();
     private List<PackageInfo> packages = [];
@@ -199,6 +214,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await User.GetPrincipalAsync();
         templates = await Templates.GetTemplatesAsync();
     }
 

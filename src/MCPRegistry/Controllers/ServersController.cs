@@ -1,11 +1,16 @@
 using MCPRegistry.Models;
 using MCPRegistry.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Cors;
 
 namespace MCPRegistry.Controllers;
 
+// Per the MCP Registry v0.1 specification, read endpoints (GET) are anonymous so
+// that any spec-compliant client (e.g. GitHub Copilot's "MCP registry URL" org
+// policy) can list servers without prior credential exchange. Write endpoints
+// (POST/DELETE) require admin and carry their own [Authorize] attributes.
 [ApiController]
 [Route("v0.1/[controller]")]
 public class ServersController : ControllerBase
@@ -221,6 +226,7 @@ public class ServersController : ControllerBase
     /// Delete specific version of an MCP server
     /// </summary>
     [HttpDelete("{domain}/{name}/versions/{version}")]
+    [Authorize(Policy = "RequireAdmin")]
     [EnableCors(Constants.CorsServersEndpointPolicy)]
     [ProducesResponseType(typeof(ServerResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -261,6 +267,7 @@ public class ServersController : ControllerBase
     /// <returns>A 201 Created response if the servers are added successfully; otherwise, a problem response with details of the
     /// error.</returns>
     [HttpPost]
+    [Authorize(Policy = "RequireAdmin")]
     [ProducesResponseType(typeof(void), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> AddServers(List<ServerDetail> servers)

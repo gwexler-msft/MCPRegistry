@@ -17,17 +17,19 @@ $envValues = azd env get-values --output json | ConvertFrom-Json
 $rg = $envValues.AZURE_RESOURCE_GROUP
 $aciSubnetId = $envValues.AZURE_ACI_SUBNET_ID
 $envDomain = $envValues.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN
-$apiName = $envValues.SERVICE_WEB_NAME
+$apiName = $envValues.SERVICE_API_NAME
 $uiName = $envValues.SERVICE_UI_NAME
 
 if (-not $rg -or -not $aciSubnetId -or -not $envDomain -or -not $apiName -or -not $uiName) {
-    Write-Error "Missing required azd env values. Required: AZURE_RESOURCE_GROUP, AZURE_ACI_SUBNET_ID, AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN, SERVICE_WEB_NAME, SERVICE_UI_NAME."
+    Write-Error "Missing required azd env values. Required: AZURE_RESOURCE_GROUP, AZURE_ACI_SUBNET_ID, AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN, SERVICE_API_NAME, SERVICE_UI_NAME."
     exit 1
 }
 
-# External env (Option B) publishes apps as <app>.<envDomain>. The synthetic
-# ACA env private DNS zone resolves wildcards to the env's public IP, but the
-# Host header must match the external form for ingress to route correctly.
+# Both apps are ingressExternal=true but the env has
+# publicNetworkAccess=Disabled, so the public LB IP rejects traffic. The
+# apps publish as <app>.<envDomain>; inside the VNet that FQDN resolves to
+# the env PE NIC (snet-pe) via the privatelink.<region>.azurecontainerapps.io
+# zone, so probes from snet-aci reach envoy and route to the app.
 $apiFqdn = "$apiName.$envDomain"
 $uiFqdn = "$uiName.$envDomain"
 $timestamp = Get-Date -Format 'HHmmss'
@@ -105,9 +107,17 @@ try {
     Write-Host $logs
     Write-Host "=== end logs ==="
 
-    $unavailableMarker = 'Container App is stopped or does not exist'
-    if ($logs -match [regex]::Escape($unavailableMarker)) {
-        Write-Error "L7 routing FAILED: env returned the 'Container App is stopped or does not exist' 404 page for at least one endpoint."
+    # Two distinct env router error pages we've seen for misrouted requests:
+    #   - 'Container App is stopped or does not exist' (legacy 404 page)
+    #   - 'Azure Container App - Unavailable'         (current 404 page for
+    #     an internal app hit via the public-form FQDN, or app with no replicas)
+    $unavailableMarkers = @(
+        'Container App is stopped or does not exist',
+        'Azure Container App - Unavailable'
+    )
+    $matchedMarker = $unavailableMarkers | Where-Object { $logs -match [regex]::Escape($_) } | Select-Object -First 1
+    if ($matchedMarker) {
+        Write-Error "L7 routing FAILED: env returned a router error page ('$matchedMarker') for at least one endpoint."
         $script:testFailed = $true
     }
     else {

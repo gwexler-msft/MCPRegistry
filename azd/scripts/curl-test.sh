@@ -14,7 +14,7 @@ ENV_JSON="$(azd env get-values --output json)"
 RG="$(echo "$ENV_JSON" | jq -r '.AZURE_RESOURCE_GROUP')"
 ACI_SUBNET_ID="$(echo "$ENV_JSON" | jq -r '.AZURE_ACI_SUBNET_ID')"
 ENV_DOMAIN="$(echo "$ENV_JSON" | jq -r '.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN')"
-API_NAME="$(echo "$ENV_JSON" | jq -r '.SERVICE_WEB_NAME')"
+API_NAME="$(echo "$ENV_JSON" | jq -r '.SERVICE_API_NAME')"
 UI_NAME="$(echo "$ENV_JSON" | jq -r '.SERVICE_UI_NAME')"
 LOC="$(echo "$ENV_JSON" | jq -r '.AZURE_LOCATION')"
 

@@ -1,20 +1,30 @@
 ﻿@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<LoggingErrorBoundary>
+    <ChildContent>
+        <div class="page">
+            <div class="sidebar">
+                <NavMenu />
+            </div>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+            <main>
+                <div class="top-row px-4">
+                    <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+                </div>
+
+                <article class="content px-4">
+                    @Body
+                </article>
+            </main>
         </div>
-
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
-</div>
+    </ChildContent>
+    <ErrorContent Context="exception">
+        <div class="alert alert-danger mt-3" role="alert">
+            The UI hit an unexpected rendering error.
+            <div class="small text-muted mt-1">@exception.Message</div>
+        </div>
+    </ErrorContent>
+</LoggingErrorBoundary>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
