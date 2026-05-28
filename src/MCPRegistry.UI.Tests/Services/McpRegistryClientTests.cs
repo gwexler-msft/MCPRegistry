@@ -121,7 +121,8 @@ public class McpRegistryClientTests
 
         var result = await client.AddServersAsync([new ServerDetail { Name = "com.test/a", Version = "1.0.0" }]);
 
-        result.Should().BeTrue();
+        result.Success.Should().BeTrue();
+        result.Error.Should().BeNull();
     }
 
     [Fact]
@@ -131,7 +132,8 @@ public class McpRegistryClientTests
 
         var result = await client.AddServersAsync([new ServerDetail { Name = "com.test/a", Version = "1.0.0" }]);
 
-        result.Should().BeFalse();
+        result.Success.Should().BeFalse();
+        result.Error.Should().NotBeNullOrEmpty();
     }
 
     [Fact]

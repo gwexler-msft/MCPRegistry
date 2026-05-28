@@ -36,11 +36,71 @@ if (-not $token) {
     exit 1
 }
 
+# When PNA=Disabled (often enforced by Azure Policy), public-path connection
+# attempts return "Deny Public Network Access is set to Yes" regardless of
+# firewall rules. Try a best-effort toggle to Enabled; if Policy blocks the
+# toggle, skip the public-path grant with clear operator instructions
+# rather than failing the azd pipeline.
+$pnaState = az sql server show --resource-group $resourceGroup --name $sqlServer --query publicNetworkAccess -o tsv 2>$null
+$pnaRestoreNeeded = $false
+if ($pnaState -eq 'Disabled') {
+    Write-Host "SQL server has publicNetworkAccess=Disabled; attempting temporary toggle to Enabled..."
+    az sql server update --resource-group $resourceGroup --name $sqlServer --enable-public-network true --output none 2>$null
+    $pnaState = az sql server show --resource-group $resourceGroup --name $sqlServer --query publicNetworkAccess -o tsv 2>$null
+    if ($pnaState -eq 'Enabled') {
+        $pnaRestoreNeeded = $true
+        Write-Host "PNA toggled to Enabled for the duration of the grant."
+    }
+    else {
+        Write-Warning "Unable to enable public network access on $sqlServer (likely blocked by Azure Policy)."
+        Write-Warning "Skipping data-plane grant. To grant manually, run this script from a host with private-endpoint access (in-VNet ACI, VPN, or jump box):"
+        Write-Warning "  ./scripts/grant-sql-access.ps1"
+        Write-Warning "Or temporarily exempt the server from the Policy and rerun."
+        exit 0
+    }
+}
+
 # Add temporary firewall rule and set Proxy connection policy
 $myIp = (Invoke-RestMethod -Uri "https://api.ipify.org" -TimeoutSec 10)
 $firewallRuleName = "azd-grant-$($myIp.Replace('.', '-'))"
 az sql server firewall-rule create --resource-group $resourceGroup --server $sqlServer --name $firewallRuleName --start-ip-address $myIp --end-ip-address $myIp --output none 2>$null
 az sql server conn-policy update --server $sqlServer --resource-group $resourceGroup --connection-type Proxy --output none 2>$null
+
+# Probe to detect the IP that SQL actually sees from this client. Outbound
+# traffic may egress through a different NAT than api.ipify.org reports
+# (e.g., corp VPN routed via Azure). Without this, the firewall rule we just
+# added may not match. We catch the SqlException and parse the blocked IP.
+Add-Type -AssemblyName System.Data
+$probeIp = $null
+$probeRuleName = $null
+try {
+    $probeCs = "Server=tcp:${sqlFqdn},1433;Database=master;Encrypt=True;TrustServerCertificate=False;Connection Timeout=15"
+    $probeConn = New-Object System.Data.SqlClient.SqlConnection($probeCs)
+    $probeConn.AccessToken = $token
+    $probeConn.Open()
+    $probeConn.Close()
+}
+catch [System.Data.SqlClient.SqlException] {
+    if ($_.Exception.Message -match "Client with IP address '([^']+)' is not allowed") {
+        $probeIp = $Matches[1]
+    }
+    else {
+        Write-Warning "SQL probe failed with unexpected error: $($_.Exception.Message)"
+    }
+}
+
+if ($probeIp -and $probeIp -ne $myIp) {
+    # The probe and grant connection may egress on different IPs from the same NAT
+    # pool (e.g., Microsoft corp NAT spans a /24). Allow the full /24 around
+    # the probed IP for the duration of the operation.
+    $octets = $probeIp.Split('.')
+    $rangeStart = "$($octets[0]).$($octets[1]).$($octets[2]).0"
+    $rangeEnd = "$($octets[0]).$($octets[1]).$($octets[2]).255"
+    Write-Host "SQL sees connections from $probeIp (different from $myIp); allowing $rangeStart-$rangeEnd temporarily..."
+    $probeRuleName = "azd-grant-actual-$($octets[0])-$($octets[1])-$($octets[2])"
+    az sql server firewall-rule create --resource-group $resourceGroup --server $sqlServer --name $probeRuleName --start-ip-address $rangeStart --end-ip-address $rangeEnd --output none 2>$null
+    Start-Sleep -Seconds 5
+}
 
 # Grant access using SqlClient with token auth
 $grantSql = @"
@@ -73,5 +133,12 @@ finally {
 # Restore and clean up
 az sql server conn-policy update --server $sqlServer --resource-group $resourceGroup --connection-type Default --output none 2>$null
 az sql server firewall-rule delete --resource-group $resourceGroup --server $sqlServer --name $firewallRuleName --output none 2>$null
+if ($probeRuleName) {
+    az sql server firewall-rule delete --resource-group $resourceGroup --server $sqlServer --name $probeRuleName --output none 2>$null
+}
+if ($pnaRestoreNeeded) {
+    Write-Host "Reverting publicNetworkAccess to Disabled..."
+    az sql server update --resource-group $resourceGroup --name $sqlServer --enable-public-network false --output none 2>$null
+}
 
 Write-Host "SQL data-plane access granted successfully."

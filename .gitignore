@@ -488,3 +488,10 @@ $RECYCLE.BIN/
 
 # exclude environment specific appsettings
 src/**/appsettings.*.json
+
+# Local diagnostic / probe artifacts (not for source control)
+.scratch/
+
+# Bicep build output (azd compiles main.bicep at provision time)
+azd/infra/main.json
+

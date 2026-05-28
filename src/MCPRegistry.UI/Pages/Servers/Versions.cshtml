@@ -1,0 +1,67 @@
+@page "/servers/{*serverName}"
+@model VersionsModel
+@{
+    ViewData["Title"] = $"{Model.ServerName} — Versions";
+}
+
+<h1>Versions: <code>@Model.ServerName</code></h1>
+
+<a class="btn btn-outline-secondary btn-sm mb-3" asp-page="/Index">← Back to all servers</a>
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
+}
+
+@if (Model.SuccessMessage is not null)
+{
+    <div class="alert alert-success">@Model.SuccessMessage</div>
+}
+
+@if (Model.Versions.Count == 0 && Model.ErrorMessage is null)
+{
+    <div class="alert alert-warning">No versions found for this server.</div>
+}
+else if (Model.Versions.Count > 0)
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Version</th>
+                <th>Title</th>
+                <th>Status</th>
+                <th>Description</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model.Versions)
+            {
+                <tr class="@(item.IsDeleted ? "text-muted" : "")">
+                    <td><span class="badge bg-primary">@item.Server.Version</span></td>
+                    <td>@(item.Server.Title ?? "—")</td>
+                    <td>
+                        @if (item.IsDeleted)
+                        {
+                            <span class="badge bg-secondary">deleted</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-success">active</span>
+                        }
+                    </td>
+                    <td>@(item.Server.Description ?? "—")</td>
+                    <td>
+                        @if (!item.IsDeleted && Model.IsAdmin)
+                        {
+                            <form method="post" asp-page-handler="Delete" class="d-inline" onsubmit="return confirm('Delete @Model.ServerName @item.Server.Version?');">
+                                <input type="hidden" name="version" value="@item.Server.Version" />
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                            </form>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}

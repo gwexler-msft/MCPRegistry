@@ -5,6 +5,7 @@
     <File Path="README.md" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/MCPRegistry.IntegrationTests/MCPRegistry.IntegrationTests.csproj" />
     <Project Path="src/MCPRegistry.Tests/MCPRegistry.Tests.csproj" />
     <Project Path="src/MCPRegistry.UI.Tests/MCPRegistry.UI.Tests.csproj" />
     <Project Path="src/MCPRegistry.UI/MCPRegistry.UI.csproj" />

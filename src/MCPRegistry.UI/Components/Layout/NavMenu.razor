@@ -1,4 +1,6 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
+﻿@inject MCPRegistry.UI.Services.EasyAuthUser User
+
+<div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
         <a class="navbar-brand" href="">MCP Registry</a>
     </div>
@@ -14,11 +16,37 @@
             </NavLink>
         </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="servers/add">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Add Server
-            </NavLink>
-        </div>
+        @if (User.IsAdmin)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="servers/add">
+                    <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Add Server
+                </NavLink>
+            </div>
+        }
+
+        @if (User.IsAuthenticated)
+        {
+            <div class="nav-item px-3 mt-3" style="color: rgba(255,255,255,0.7); font-size: 0.85rem;">
+                Signed in as <strong>@(User.DisplayName ?? "user")</strong>
+                @if (User.IsAdmin)
+                {
+                    <span class="badge bg-success ms-1">admin</span>
+                }
+            </div>
+            <div class="nav-item px-3">
+                <a class="nav-link" href="MicrosoftIdentity/Account/SignOut">
+                    <span class="bi bi-x-circle-fill-nav-menu" aria-hidden="true"></span> Sign out
+                </a>
+            </div>
+        }
     </nav>
 </div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await User.GetPrincipalAsync();
+    }
+}
 
