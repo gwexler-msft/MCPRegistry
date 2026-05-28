@@ -1,0 +1,123 @@
+# Incremental provision + deploy of the MCP Registry stack to Azure via azd.
+# Manual trigger only. For a full teardown + fresh build, use azd-clean-redeploy.yml.
+#
+# Required GitHub repository configuration:
+#
+#   Variables (Settings -> Secrets and variables -> Actions -> Variables):
+#     AZURE_CLIENT_ID            - App ID of the workflow SP (OIDC federated)
+#     AZURE_TENANT_ID            - Entra tenant ID
+#     AZURE_SUBSCRIPTION_ID      - Target Azure subscription ID
+#     AZURE_LOCATION             - Default Azure region (e.g. centralus)
+#     AZURE_ENV_NAME             - Default azd env name (e.g. dev)
+#     AZURE_PRINCIPAL_ID         - Object ID to grant SQL admin / RBAC (often the
+#                                  workflow SP's own object ID, or an admin group)
+#     AZURE_PRINCIPAL_NAME       - Display name matching the principal above
+#     AZURE_WORKLOAD_NAME        - (optional) Defaults to 'mcpreg' in Bicep
+#     AZURE_RESOURCE_GROUP_NAME  - (optional) Override RG name
+#
+# OIDC setup: the workflow SP (AZURE_CLIENT_ID) needs a federated credential
+# matching repo:<owner>/<repo>:ref:refs/heads/<branch> plus an RBAC role on the
+# subscription (Contributor + User Access Administrator, or Owner).
+#
+# Note: this workflow targets the basic public deployment on main. There are no
+# AAD app registrations to manage \u2014 the lockdown-with-Easy-Auth flow lives on
+# feat/private-vnet-lockdown.
+
+name: azd deploy (incremental)
+
+on:
+  workflow_dispatch:
+    inputs:
+      env_name:
+        description: "azd environment name (overrides AZURE_ENV_NAME var)"
+        required: false
+        default: ""
+      location:
+        description: "Azure region (overrides AZURE_LOCATION var)"
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: azd-deploy-${{ github.event.inputs.env_name || vars.AZURE_ENV_NAME }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: azd
+    env:
+      AZURE_ENV_NAME: ${{ github.event.inputs.env_name || vars.AZURE_ENV_NAME }}
+      AZURE_LOCATION: ${{ github.event.inputs.location || vars.AZURE_LOCATION }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install azd
+        uses: Azure/setup-azd@v2
+
+      - name: Install SqlPackage
+        run: dotnet tool install --global Microsoft.SqlPackage
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: azd login (OIDC)
+        run: |
+          azd auth login \
+            --client-id "${{ vars.AZURE_CLIENT_ID }}" \
+            --federated-credential-provider github \
+            --tenant-id "${{ vars.AZURE_TENANT_ID }}"
+
+      - name: Make hook scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Create or select azd env
+        run: |
+          if azd env select "$AZURE_ENV_NAME" 2>/dev/null; then
+            echo "Selected existing azd env: $AZURE_ENV_NAME"
+          else
+            azd env new "$AZURE_ENV_NAME" \
+              --location "$AZURE_LOCATION" \
+              --subscription "$AZURE_SUBSCRIPTION_ID" \
+              --no-prompt
+          fi
+
+      - name: Seed azd env from GitHub variables
+        env:
+          AZURE_PRINCIPAL_ID: ${{ vars.AZURE_PRINCIPAL_ID }}
+          AZURE_PRINCIPAL_NAME: ${{ vars.AZURE_PRINCIPAL_NAME }}
+          AZURE_WORKLOAD_NAME: ${{ vars.AZURE_WORKLOAD_NAME }}
+          AZURE_RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
+        run: |
+          set_if() {
+            local key="$1"
+            local value="$2"
+            if [ -n "$value" ]; then
+              azd env set "$key" "$value"
+            fi
+          }
+          set_if AZURE_TENANT_ID            "$AZURE_TENANT_ID"
+          set_if AZURE_SUBSCRIPTION_ID      "$AZURE_SUBSCRIPTION_ID"
+          set_if AZURE_LOCATION             "$AZURE_LOCATION"
+          set_if AZURE_PRINCIPAL_ID         "$AZURE_PRINCIPAL_ID"
+          set_if AZURE_PRINCIPAL_NAME       "$AZURE_PRINCIPAL_NAME"
+          set_if AZURE_WORKLOAD_NAME        "$AZURE_WORKLOAD_NAME"
+          set_if AZURE_RESOURCE_GROUP_NAME  "$AZURE_RESOURCE_GROUP_NAME"
+
+      - name: azd provision
+        run: azd provision --no-prompt
+
+      - name: azd deploy
+        run: azd deploy --no-prompt
