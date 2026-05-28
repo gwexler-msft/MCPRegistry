@@ -1,0 +1,146 @@
+# Incremental provision + deploy of the MCP Registry stack to Azure via azd.
+# Manual trigger only. For a full teardown + fresh build, use azd-clean-redeploy.yml.
+#
+# Required GitHub repository configuration:
+#
+#   Variables (Settings -> Secrets and variables -> Actions -> Variables):
+#     AZURE_CLIENT_ID                          - App ID of the workflow SP (OIDC federated)
+#     AZURE_TENANT_ID                          - Entra tenant ID
+#     AZURE_SUBSCRIPTION_ID                    - Target Azure subscription ID
+#     AZURE_LOCATION                           - Default Azure region (e.g. centralus)
+#     AZURE_ENV_NAME                           - Default azd env name (e.g. prod)
+#     AZURE_PRINCIPAL_ID                       - Object ID to grant admin RBAC (often the SP or an admin group)
+#     AZURE_PRINCIPAL_NAME                     - Display name for the principal above
+#     AZURE_ADMIN_GROUP_ID                     - Object ID of the Entra group whose members get UI/API admin access
+#     AZURE_API_APP_CLIENT_ID                  - appId of the pre-created mcp-registry-api-<env> Entra app
+#     AZURE_UI_APP_CLIENT_ID                   - appId of the pre-created mcp-registry-ui-<env> Entra app
+#     AZURE_PEER_VNET_RESOURCE_ID              - (optional) Resource ID of a peer VNet for hub/spoke
+#     AZURE_HUB_VNET_RESOURCE_ID               - (optional) Resource ID of the hub VNet
+#     AZURE_DNS_ZONE_LINK_VNET_RESOURCE_IDS    - (optional) JSON array of VNet IDs to link private DNS zones to
+#     AZURE_DEPLOY_DEV_VM                      - (optional) "true" to deploy the jump-box dev VM
+#
+#   Secrets (Settings -> Secrets and variables -> Actions -> Secrets):
+#     AZURE_UI_APP_CLIENT_SECRET               - Client secret for the UI app registration
+#     AZURE_DEV_VM_ADMIN_PASSWORD              - (optional) Admin password if AZURE_DEPLOY_DEV_VM=true
+#
+# OIDC setup: the workflow SP (AZURE_CLIENT_ID) needs a federated credential matching
+#   repo:<owner>/<repo>:ref:refs/heads/<branch>  (or environment/pull_request as needed)
+# plus an RBAC role on the subscription (Owner is simplest; Contributor + User Access
+# Administrator works for least-privilege).
+#
+# AAD app registrations are pre-created out-of-band and their IDs/secret fed via the
+# variables/secrets above; the preprovision hook is skipped via MCPREG_SKIP_AAD_SETUP=1.
+
+name: azd deploy (incremental)
+
+on:
+  workflow_dispatch:
+    inputs:
+      env_name:
+        description: "azd environment name (overrides AZURE_ENV_NAME var)"
+        required: false
+        default: ""
+      location:
+        description: "Azure region (overrides AZURE_LOCATION var)"
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: azd-deploy-${{ github.event.inputs.env_name || vars.AZURE_ENV_NAME }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: azd
+    env:
+      AZURE_ENV_NAME: ${{ github.event.inputs.env_name || vars.AZURE_ENV_NAME }}
+      AZURE_LOCATION: ${{ github.event.inputs.location || vars.AZURE_LOCATION }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      MCPREG_SKIP_AAD_SETUP: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install azd
+        uses: Azure/setup-azd@v2
+
+      - name: Install SqlPackage
+        run: dotnet tool install --global Microsoft.SqlPackage
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: azd login (OIDC)
+        run: |
+          azd auth login \
+            --client-id "${{ vars.AZURE_CLIENT_ID }}" \
+            --federated-credential-provider github \
+            --tenant-id "${{ vars.AZURE_TENANT_ID }}"
+
+      - name: Make hook scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Create or select azd env
+        run: |
+          if azd env select "$AZURE_ENV_NAME" 2>/dev/null; then
+            echo "Selected existing azd env: $AZURE_ENV_NAME"
+          else
+            azd env new "$AZURE_ENV_NAME" \
+              --location "$AZURE_LOCATION" \
+              --subscription "$AZURE_SUBSCRIPTION_ID" \
+              --no-prompt
+          fi
+
+      - name: Seed azd env from GitHub variables and secrets
+        env:
+          AZURE_PRINCIPAL_ID: ${{ vars.AZURE_PRINCIPAL_ID }}
+          AZURE_PRINCIPAL_NAME: ${{ vars.AZURE_PRINCIPAL_NAME }}
+          AZURE_ADMIN_GROUP_ID: ${{ vars.AZURE_ADMIN_GROUP_ID }}
+          AZURE_API_APP_CLIENT_ID: ${{ vars.AZURE_API_APP_CLIENT_ID }}
+          AZURE_UI_APP_CLIENT_ID: ${{ vars.AZURE_UI_APP_CLIENT_ID }}
+          AZURE_UI_APP_CLIENT_SECRET: ${{ secrets.AZURE_UI_APP_CLIENT_SECRET }}
+          AZURE_PEER_VNET_RESOURCE_ID: ${{ vars.AZURE_PEER_VNET_RESOURCE_ID }}
+          AZURE_HUB_VNET_RESOURCE_ID: ${{ vars.AZURE_HUB_VNET_RESOURCE_ID }}
+          AZURE_DNS_ZONE_LINK_VNET_RESOURCE_IDS: ${{ vars.AZURE_DNS_ZONE_LINK_VNET_RESOURCE_IDS }}
+          AZURE_DEPLOY_DEV_VM: ${{ vars.AZURE_DEPLOY_DEV_VM }}
+          AZURE_DEV_VM_ADMIN_PASSWORD: ${{ secrets.AZURE_DEV_VM_ADMIN_PASSWORD }}
+        run: |
+          set_if() {
+            local key="$1"
+            local value="$2"
+            if [ -n "$value" ]; then
+              azd env set "$key" "$value"
+            fi
+          }
+          set_if AZURE_TENANT_ID            "$AZURE_TENANT_ID"
+          set_if AZURE_SUBSCRIPTION_ID      "$AZURE_SUBSCRIPTION_ID"
+          set_if AZURE_LOCATION             "$AZURE_LOCATION"
+          set_if AZURE_PRINCIPAL_ID         "$AZURE_PRINCIPAL_ID"
+          set_if AZURE_PRINCIPAL_NAME       "$AZURE_PRINCIPAL_NAME"
+          set_if AZURE_ADMIN_GROUP_ID       "$AZURE_ADMIN_GROUP_ID"
+          set_if AZURE_API_APP_CLIENT_ID    "$AZURE_API_APP_CLIENT_ID"
+          set_if AZURE_UI_APP_CLIENT_ID     "$AZURE_UI_APP_CLIENT_ID"
+          set_if AZURE_UI_APP_CLIENT_SECRET "$AZURE_UI_APP_CLIENT_SECRET"
+          set_if AZURE_PEER_VNET_RESOURCE_ID            "$AZURE_PEER_VNET_RESOURCE_ID"
+          set_if AZURE_HUB_VNET_RESOURCE_ID             "$AZURE_HUB_VNET_RESOURCE_ID"
+          set_if AZURE_DNS_ZONE_LINK_VNET_RESOURCE_IDS  "$AZURE_DNS_ZONE_LINK_VNET_RESOURCE_IDS"
+          set_if AZURE_DEPLOY_DEV_VM                    "$AZURE_DEPLOY_DEV_VM"
+          set_if AZURE_DEV_VM_ADMIN_PASSWORD            "$AZURE_DEV_VM_ADMIN_PASSWORD"
+
+      - name: azd provision
+        run: azd provision --no-prompt
+
+      - name: azd deploy
+        run: azd deploy --no-prompt

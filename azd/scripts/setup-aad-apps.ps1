@@ -31,6 +31,14 @@
 
 $ErrorActionPreference = 'Stop'
 
+# CI escape hatch: when client IDs / secret are pre-seeded via GH secrets the
+# preprovision hook has nothing to do and the workflow SP doesn't need
+# Application.ReadWrite.All. Set MCPREG_SKIP_AAD_SETUP=1 to bail early.
+if ($env:MCPREG_SKIP_AAD_SETUP -eq '1') {
+    Write-Host "MCPREG_SKIP_AAD_SETUP=1 — skipping AAD app registration setup." -ForegroundColor Yellow
+    exit 0
+}
+
 # On Windows, `az rest --body <json-string>` is fragile because cmd.exe
 # argument parsing eats quotes. Write the JSON to a temp file and pass
 # --body "@$tmpFile" instead.

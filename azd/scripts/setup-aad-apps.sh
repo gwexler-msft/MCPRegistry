@@ -7,6 +7,14 @@
 
 set -euo pipefail
 
+# CI escape hatch: when client IDs / secret are pre-seeded via GH secrets the
+# preprovision hook has nothing to do and the workflow SP doesn't need
+# Application.ReadWrite.All. Set MCPREG_SKIP_AAD_SETUP=1 to bail early.
+if [ "${MCPREG_SKIP_AAD_SETUP:-}" = "1" ]; then
+    echo "MCPREG_SKIP_AAD_SETUP=1 — skipping AAD app registration setup."
+    exit 0
+fi
+
 echo "Setting up AAD app registrations for Easy Auth..."
 
 envName=$(azd env get-value AZURE_ENV_NAME 2>/dev/null || true)
